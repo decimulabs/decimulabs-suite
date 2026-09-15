@@ -4,7 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 /**
-    Decimul Acoustic — multiefecto para voz/instrumentos acústicos.
+    DecimuLabs Acoustic — multiefecto para voz/instrumentos acústicos.
     Ver plugins/decimul-acoustic/SPEC.md para la spec completa de parámetros
     y la cadena de señal.
 

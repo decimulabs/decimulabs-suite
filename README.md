@@ -22,7 +22,7 @@ agregado" en cada spec).
 
 | Plugin | Estado | Carpeta |
 |---|---|---|
-| **Decimul Acoustic** — multiefecto para voz/instrumentos acústicos | 🟡 spec + esqueleto listo, falta UI y DSP real | [plugins/decimul-acoustic](plugins/decimul-acoustic) |
+| **DecimuLabs Acoustic** — multiefecto para voz/instrumentos acústicos | 🟡 spec + esqueleto listo, falta UI y DSP real | [plugins/decimul-acoustic](plugins/decimul-acoustic) |
 | **Decimul SF2** — reproductor de soundfonts (sampler) | ⚪ pendiente | [plugins/sf2-player](plugins/sf2-player) |
 | *(a definir)* | ⚪ idea abierta | — |
 

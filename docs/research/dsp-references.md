@@ -4,7 +4,7 @@
 
 - Repo: https://github.com/airwindows/airwindows (MIT)
 - Estructura: `plugins/<Plugin>/` con DSP puro en `.cpp`/`.h`, separable del wrapper.
-- Candidatos para las 3 "carácter" de compresión de Decimul Acoustic:
+- Candidatos para las 3 "carácter" de compresión de DecimuLabs Acoustic:
   - **Pop!** → carácter suave/óptico, para "Glue"
   - **Pulse** → carácter más rápido/punchy, para "Snap"
   - **Volt** o **Velvet** → carácter más agresivo/saturado, para "Squash"

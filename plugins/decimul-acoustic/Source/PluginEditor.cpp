@@ -3,7 +3,7 @@
 DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     : juce::AudioProcessorEditor(&p), processor(p)
 {
-    placeholderLabel.setText("Decimul Acoustic — build OK, falta UI (ver SPEC.md)",
+    placeholderLabel.setText("DecimuLabs Acoustic — build OK, falta UI (ver SPEC.md)",
                               juce::dontSendNotification);
     placeholderLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(placeholderLabel);

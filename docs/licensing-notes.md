@@ -20,7 +20,7 @@ Resumen de qué podemos usar y bajo qué condiciones, dado que la suite se liber
   envolverlo en nuestro propio `juce::dsp` processor.
 - Reglas: mantener el aviso de copyright de Chris Johnson en el archivo vendorizado
   (carpeta `third_party/airwindows/<algoritmo>/`), documentar de qué plugin salió cada uno.
-- Candidatos usados en Decimul Acoustic: compresores **Pop!**, **Pulse**, **Velvet**,
+- Candidatos usados en DecimuLabs Acoustic: compresores **Pop!**, **Pulse**, **Velvet**,
   **Volt**; reverbs de la colección **Spaces** (16 algoritmos K-series).
 
 ## fluidsynth (para el reproductor SF2)

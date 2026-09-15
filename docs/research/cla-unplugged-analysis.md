@@ -40,7 +40,7 @@ nadie):
   nivel de reverb.
 - Pensado para insertarse como insert (Direct on) o como aux/return (Direct off).
 
-## Traducción a "Decimul Acoustic" (nuestra versión)
+## Traducción a "DecimuLabs Acoustic" (nuestra versión)
 
 Mismo esqueleto de 9 etapas, pero: nombres propios, bypass real en todos los módulos,
 oversampling opcional en dinámica, y fallback de tempo cuando no hay host (ver

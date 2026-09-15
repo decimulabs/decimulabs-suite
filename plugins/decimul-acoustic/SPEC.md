@@ -1,4 +1,4 @@
-# Decimul Acoustic — Spec
+# DecimuLabs Acoustic — Spec
 
 Multiefecto "todo en uno" para voz e instrumentos acústicos (guitarra, piano, cuerdas,
 nylon). Inspirado en la estructura del Waves CLA Unplugged (ver

@@ -6,7 +6,7 @@ Reproductor de soundfonts (SF2/SF3) para decimulabs. Motor propuesto: **libfluid
 de por qué no se fork­ea `juicysfplugin` (es GPLv3 pero con arquitectura/UI que no
 necesitamos heredar; igual sirve como referencia de integración).
 
-Todavía no tiene spec ni esqueleto — se arma después de terminar Decimul Acoustic.
+Todavía no tiene spec ni esqueleto — se arma después de terminar DecimuLabs Acoustic.
 
 Ideas sueltas para cuando se especifique:
 

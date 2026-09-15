@@ -20,7 +20,7 @@ juce_add_plugin(DecimulAcoustic
     PLUGIN_MANUFACTURER_CODE Dcml
     PLUGIN_CODE Dac1
     FORMATS VST3 Standalone
-    PRODUCT_NAME "Decimul Acoustic"
+    PRODUCT_NAME "DecimuLabs Acoustic"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
