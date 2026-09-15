@@ -5,9 +5,11 @@ nylon). Inspirado en la estructura del Waves CLA Unplugged (ver
 [docs/research/cla-unplugged-analysis.md](../../docs/research/cla-unplugged-analysis.md)),
 reinterpretado con nombres propios y funciones nuevas.
 
-Estado: **spec cerrada, parámetros definidos y 100% cableados en código (verificado
-contra `PluginProcessor.cpp`), listo para maquetar UI.** DSP real pendiente (hoy corre
-con placeholder de trim de input/output con ganancia suavizada, ver PluginProcessor).
+Estado: **spec cerrada, parámetros 100% cableados, y DSP de referencia funcionando**
+(Tone/Dynamics/Space A+B/Echo/Blend con clases built-in de `juce::dsp` — no es todavía
+la calidad final basada en Airwindows, ver limitaciones conocidas al inicio de
+`PluginProcessor.h`). El editor hoy es el `juce::GenericAudioProcessorEditor` (perillas
+automáticas) — falta el diseño visual custom.
 
 ## Cadena de señal
 
