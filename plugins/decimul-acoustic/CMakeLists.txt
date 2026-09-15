@@ -15,6 +15,8 @@ FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(DecimulAcoustic
     COMPANY_NAME "decimulabs"
+    COMPANY_WEBSITE "https://www.decimulabs.com"
+    COMPANY_COPYRIGHT "decimulabs"
     PLUGIN_MANUFACTURER_CODE Dcml
     PLUGIN_CODE Dac1
     FORMATS VST3 Standalone

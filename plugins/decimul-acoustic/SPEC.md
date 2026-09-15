@@ -5,8 +5,9 @@ nylon). Inspirado en la estructura del Waves CLA Unplugged (ver
 [docs/research/cla-unplugged-analysis.md](../../docs/research/cla-unplugged-analysis.md)),
 reinterpretado con nombres propios y funciones nuevas.
 
-Estado: **spec cerrada, parámetros definidos, listo para maquetar UI.** DSP real
-pendiente (hoy corre con placeholders pass-through, ver PluginProcessor).
+Estado: **spec cerrada, parámetros definidos y 100% cableados en código (verificado
+contra `PluginProcessor.cpp`), listo para maquetar UI.** DSP real pendiente (hoy corre
+con placeholder de trim de input/output con ganancia suavizada, ver PluginProcessor).
 
 ## Cadena de señal
 
@@ -34,19 +35,29 @@ original: dos reverbs independientes, no en serie), se suman, y ahí entra el Ec
 | `compOversample` | Oversample x2/x4 | choice | Off / 2x / 4x | Off | valor agregado |
 | `spaceAMix` | Space A | float 0-100% | 0..100 | 0 | |
 | `spaceAType` | Space A Type | choice | Room / Hall / Cathedral | Room | de Airwindows Spaces |
-| `spaceAPreDelay` | Space A Pre-Delay | float ms o sync | 0-500ms / 64T-1/4 | 0 / off | toggle sync/free |
+| `spaceAPreDelay` | Space A Pre-Delay | float ms | 0-500ms | 0 | valor libre en ms |
+| `spaceAPreDelaySync` | Space A Pre-Delay Sync | bool | on/off | off | on = usa división rítmica (tempo host o `manualBpm`) en vez de ms libres |
 | `spaceBMix` | Space B | float 0-100% | 0..100 | 0 | |
 | `spaceBType` | Space B Type | choice | Close / Wide / Vast | Close | |
-| `spaceBPreDelay` | Space B Pre-Delay | float ms o sync | 0-500ms / 64T-1/4 | 0 / off | |
+| `spaceBPreDelay` | Space B Pre-Delay | float ms | 0-500ms | 0 | |
+| `spaceBPreDelaySync` | Space B Pre-Delay Sync | bool | on/off | off | |
 | `echoMix` | Echo | float 0-100% | 0..100 | 0 | |
 | `echoDivision` | Echo Division | choice | Slap / 8th / Quarter | Slap | tempo-synced |
-| `echoTapTempo` | Tap Tempo | trigger | — | — | fallback sin host BPM (standalone) |
 | `blend` | Blend (Dry/Wet) | float % | 0..100 | 100 | reemplaza el "Direct on/off" binario por mezcla continua |
 | `outputTrim` | Output | float dB | -24..+24 | 0 | |
 | `bypass` | Bypass general | bool | — | off | |
 
 Meters (no automatizables, solo lectura para la UI): input peak, output peak, gain
 reduction del compresor, correlación estéreo post Space A+B.
+
+**Tap Tempo** (`tapTempo()` + `manualBpm`) queda afuera del APVTS a propósito: es un
+gesto transitorio de UI (click de un botón), no un valor con sentido para automatizar
+desde una DAW. Vive como método público en `DecimulAcousticProcessor` que la UI llama en
+cada click; el BPM calculado se guarda igual en el estado del plugin (XML) para que
+sobreviva a cerrar/abrir la sesión.
+
+**Buses de entrada**: acepta mono→estéreo (mic/DI directo) además de estéreo→estéreo,
+igual que los dos componentes del CLA Unplugged original — ver `isBusesLayoutSupported`.
 
 ## Valor agregado sobre el original (para que no sea "una copia")
 
