@@ -1,30 +1,6 @@
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 #include <cmath>
-
-namespace ParamIDs
-{
-    static const juce::String inputTrim          = "inputTrim";
-    static const juce::String lowGain            = "lowGain";
-    static const juce::String lowMode            = "lowMode";
-    static const juce::String highGain           = "highGain";
-    static const juce::String highMode           = "highMode";
-    static const juce::String compAmount         = "compAmount";
-    static const juce::String compMode           = "compMode";
-    static const juce::String compOversample     = "compOversample";
-    static const juce::String spaceAMix          = "spaceAMix";
-    static const juce::String spaceAType         = "spaceAType";
-    static const juce::String spaceAPreDelay     = "spaceAPreDelay";
-    static const juce::String spaceAPreDelaySync = "spaceAPreDelaySync";
-    static const juce::String spaceBMix          = "spaceBMix";
-    static const juce::String spaceBType         = "spaceBType";
-    static const juce::String spaceBPreDelay     = "spaceBPreDelay";
-    static const juce::String spaceBPreDelaySync = "spaceBPreDelaySync";
-    static const juce::String echoMix            = "echoMix";
-    static const juce::String echoDivision       = "echoDivision";
-    static const juce::String blend              = "blend";
-    static const juce::String outputTrim         = "outputTrim";
-    static const juce::String bypass             = "bypass";
-}
 
 namespace
 {
@@ -426,12 +402,7 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 
 juce::AudioProcessorEditor* DecimulAcousticProcessor::createEditor()
 {
-    // Editor genérico de JUCE: una perilla/slider por parámetro automatizable, con el
-    // nombre y unidad que le pusimos en createParameterLayout(). Es exactamente lo que
-    // vas a ver acá lo mismo que si tu host mostrara su UI genérica de VST3 — sirve para
-    // probar que el DSP responde, hasta que se diseñe la UI final custom (ver SPEC.md
-    // "Próximo paso").
-    return new juce::GenericAudioProcessorEditor(*this);
+    return new DecimulAcousticEditor(*this);
 }
 
 void DecimulAcousticProcessor::tapTempo()

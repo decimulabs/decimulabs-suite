@@ -3,14 +3,44 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 
+// IDs de parámetros, compartidos entre PluginProcessor.cpp y PluginEditor.cpp (evita
+// duplicar los strings a mano en dos archivos, que es receta segura para un typo).
+namespace ParamIDs
+{
+    static const juce::String inputTrim          = "inputTrim";
+    static const juce::String lowGain            = "lowGain";
+    static const juce::String lowMode            = "lowMode";
+    static const juce::String highGain           = "highGain";
+    static const juce::String highMode           = "highMode";
+    static const juce::String compAmount         = "compAmount";
+    static const juce::String compMode           = "compMode";
+    static const juce::String compOversample     = "compOversample";
+    static const juce::String spaceAMix          = "spaceAMix";
+    static const juce::String spaceAType         = "spaceAType";
+    static const juce::String spaceAPreDelay     = "spaceAPreDelay";
+    static const juce::String spaceAPreDelaySync = "spaceAPreDelaySync";
+    static const juce::String spaceBMix          = "spaceBMix";
+    static const juce::String spaceBType         = "spaceBType";
+    static const juce::String spaceBPreDelay     = "spaceBPreDelay";
+    static const juce::String spaceBPreDelaySync = "spaceBPreDelaySync";
+    static const juce::String echoMix            = "echoMix";
+    static const juce::String echoDivision       = "echoDivision";
+    static const juce::String blend              = "blend";
+    static const juce::String outputTrim         = "outputTrim";
+    static const juce::String bypass             = "bypass";
+}
+
 /**
     DecimuLabs Acoustic — multiefecto para voz/instrumentos acústicos.
     Ver plugins/decimul-acoustic/SPEC.md para la spec completa de parámetros
     y la cadena de señal.
 
-    Estado actual ("hito de prueba"): el editor es el juce::GenericAudioProcessorEditor
-    (perillas automáticas, sin diseño visual todavía) y el DSP de este archivo es una
-    implementación de REFERENCIA con clases built-in de juce::dsp (IIR shelving, Compressor,
+    Estado actual ("hito de prueba"): el editor (ver PluginEditor.h/.cpp) es un layout
+    mega básico inspirado en el banco de faders del Waves CLA Unplugged (sliders
+    verticales + selector de carácter/tipo arriba de cada uno + meters a los costados),
+    con estética propia — no copia su diseño gráfico, colores ni branding. El DSP de
+    este archivo es una implementación de REFERENCIA con clases built-in de juce::dsp
+    (IIR shelving, Compressor,
     Reverb tipo Freeverb, DelayLine con feedback) — sirve para escuchar y validar que la
     cadena de señal tiene sentido, pero NO es la calidad final: eso viene después,
     reemplazando cada etapa por el DSP de Airwindows (ver docs/research/dsp-references.md).

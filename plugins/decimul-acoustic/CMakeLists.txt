@@ -31,6 +31,7 @@ juce_add_plugin(DecimulAcoustic
 
 target_sources(DecimulAcoustic PRIVATE
     Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
 )
 
 target_compile_definitions(DecimulAcoustic PUBLIC
