@@ -32,7 +32,19 @@ juce_add_plugin(DecimulAcoustic
 target_sources(DecimulAcoustic PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/DecimuLookAndFeel.cpp
 )
+
+# Assets de marca (logo + tipografías OFL), ver Assets/README.md. Quedan compilados
+# adentro del binario del plugin, no se cargan desde ningún lado en runtime.
+juce_add_binary_data(DecimulAcousticAssets SOURCES
+    Assets/wordmark.png
+    Assets/dog.png
+    Assets/ChakraPetch-Regular.ttf
+    Assets/ChakraPetch-Bold.ttf
+    Assets/VT323-Regular.ttf
+)
+set_target_properties(DecimulAcousticAssets PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 target_compile_definitions(DecimulAcoustic PUBLIC
     JUCE_WEB_BROWSER=0
@@ -44,6 +56,7 @@ target_link_libraries(DecimulAcoustic PRIVATE
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_gui_extra
+    DecimulAcousticAssets
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags

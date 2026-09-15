@@ -1,17 +1,16 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "DecimuLookAndFeel.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /**
-    UI "mega básica" de DecimuLabs Acoustic — layout inspirado en el banco de faders
-    del Waves CLA Unplugged (sliders verticales en fila, selector de carácter/tipo
-    arriba de cada uno, meters a los costados, bypass cerca del output) para que la
-    interacción resulte familiar a cualquiera que conozca ese tipo de plugin. Estética
-    propia: fondo oscuro liso, sin la textura dorada/paisley, sin el logo "Chris
-    Lord-Alge", sin el esquema de colores rojo/azul/verde por opción — acá cada modo es
-    simplemente texto en un combo box. Cero diseño gráfico custom a propósito: es un
-    hito para poder tocar los parámetros con el mouse, no la UI final (ver SPEC.md).
+    UI de DecimuLabs Acoustic con la identidad visual real del sitio decimulabs.com:
+    logo (wordmark + "perro"), paleta oscura con acentos rojo/cian/azul, tipografías
+    Chakra Petch + VT323 (ver DecimuLookAndFeel.h y Assets/README.md). El layout
+    funcional sigue inspirado en el banco de faders del Waves CLA Unplugged (sliders
+    verticales en fila, selector de carácter/tipo arriba de cada uno, meters a los
+    costados) — no se copia su diseño gráfico ni su branding, ver conversación previa.
 */
 class DecimulAcousticEditor : public juce::AudioProcessorEditor,
                                private juce::Timer
@@ -27,7 +26,7 @@ private:
     void timerCallback() override;
 
     // Barra vertical simple (sin ballistics/peak-hold real): un rectángulo que se
-    // llena según el nivel en dB. A propósito lo más básico posible.
+    // llena según el nivel en dB.
     struct SimpleMeter : public juce::Component
     {
         void paint(juce::Graphics& g) override;
@@ -38,8 +37,10 @@ private:
     void setupCombo(juce::ComboBox& box, const juce::StringArray& items);
 
     DecimulAcousticProcessor& processorRef;
+    DecimuLookAndFeel lookAndFeel;
 
-    juce::Label titleLabel;
+    juce::Image wordmarkImage, dogImage;
+    juce::Rectangle<int> headerLogoArea;
 
     // Orden igual al banco de faders de referencia: Input | Low High Dynamics Space A
     // Space B Echo | Blend | Output — con meters en las puntas (Input/Output) como en
@@ -52,8 +53,9 @@ private:
     juce::ComboBox lowModeBox, highModeBox, compModeBox,
                    spaceATypeBox, spaceBTypeBox, echoDivisionBox;
 
-    juce::ToggleButton bypassButton { "Bypass" };
-    juce::TextButton tapTempoButton { "Tap" };
+    // Se dibuja como el indicador "REC" del sitio (ver DecimuLookAndFeel::drawToggleButton).
+    juce::ToggleButton bypassButton;
+    juce::TextButton tapTempoButton { "TAP" };
     juce::Label bpmLabel;
 
     SimpleMeter inputMeter, outputMeter;

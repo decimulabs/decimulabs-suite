@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "BinaryData.h"
 
 void DecimulAcousticEditor::SimpleMeter::paint(juce::Graphics& g)
 {
@@ -9,10 +10,10 @@ void DecimulAcousticEditor::SimpleMeter::paint(juce::Graphics& g)
 
     auto bounds = getLocalBounds().toFloat();
     auto filled = bounds.removeFromBottom(bounds.getHeight() * norm);
-    g.setColour(juce::Colours::limegreen);
+    g.setColour(DecimuColours::accentCyan);
     g.fillRect(filled);
 
-    g.setColour(juce::Colours::grey);
+    g.setColour(DecimuColours::textMuted);
     g.drawRect(getLocalBounds());
 }
 
@@ -24,7 +25,7 @@ void DecimulAcousticEditor::setupFader(juce::Slider& slider, juce::Label& label,
 
     label.setText(text, juce::dontSendNotification);
     label.setJustificationType(juce::Justification::centred);
-    label.setColour(juce::Label::textColourId, juce::Colours::white);
+    label.setColour(juce::Label::textColourId, DecimuColours::text);
     addAndMakeVisible(label);
 }
 
@@ -38,10 +39,10 @@ void DecimulAcousticEditor::setupCombo(juce::ComboBox& box, const juce::StringAr
 DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     : juce::AudioProcessorEditor(&p), processorRef(p)
 {
-    titleLabel.setText("DecimuLabs Acoustic", juce::dontSendNotification);
-    titleLabel.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
-    titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    addAndMakeVisible(titleLabel);
+    setLookAndFeel(&lookAndFeel);
+
+    wordmarkImage = juce::ImageFileFormat::loadFrom(BinaryData::wordmark_png, (size_t) BinaryData::wordmark_pngSize);
+    dogImage = juce::ImageFileFormat::loadFrom(BinaryData::dog_png, (size_t) BinaryData::dog_pngSize);
 
     setupFader(inputSlider, inputLabel, "Input");
     setupFader(lowSlider, lowLabel, "Low");
@@ -65,8 +66,7 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     tapTempoButton.onClick = [this] { processorRef.tapTempo(); };
 
     bpmLabel.setJustificationType(juce::Justification::centred);
-    bpmLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    bpmLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
+    bpmLabel.setColour(juce::Label::textColourId, DecimuColours::textMuted);
     addAndMakeVisible(bpmLabel);
 
     addAndMakeVisible(inputMeter);
@@ -92,7 +92,7 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
 
     bypassAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
 
-    setSize(980, 480);
+    setSize(980, 500);
     setResizable(true, true);
     startTimerHz(30);
 }
@@ -100,25 +100,56 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
 DecimulAcousticEditor::~DecimulAcousticEditor()
 {
     stopTimer();
+    setLookAndFeel(nullptr);
 }
 
 void DecimulAcousticEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1c1e22));
-    g.setColour(juce::Colours::grey.withAlpha(0.5f));
-    g.drawLine(0.0f, 46.0f, (float) getWidth(), 46.0f);
+    g.fillAll(DecimuColours::background);
+
+    // Marco tipo "visor de cámara" (referencia al HUD del sitio: REC / timecode /
+    // marco de encuadre), sin reproducir su contenido, solo el gesto de un borde fino.
+    g.setColour(DecimuColours::textMuted.withAlpha(0.35f));
+    g.drawRect(getLocalBounds(), 1);
+    g.drawLine(0.0f, 54.0f, (float) getWidth(), 54.0f, 1.0f);
+    g.drawLine(0.0f, (float) getHeight() - 22.0f, (float) getWidth(), (float) getHeight() - 22.0f, 1.0f);
+
+    // Copia local: headerLogoArea es un miembro (calculado una vez en resized()) y acá
+    // solo lo consultamos — si le hiciéramos removeFromLeft() directo se iría achicando
+    // en cada repintado sucesivo del editor.
+    auto logoArea = headerLogoArea;
+    if (dogImage.isValid())
+    {
+        auto dogArea = logoArea.removeFromLeft(logoArea.getHeight());
+        g.drawImage(dogImage, dogArea.toFloat(), juce::RectanglePlacement::centred);
+        logoArea.removeFromLeft(8);
+    }
+    if (wordmarkImage.isValid())
+    {
+        auto wordmarkArea = logoArea.withSizeKeepingCentre(
+            juce::jmin(logoArea.getWidth(), 220), logoArea.getHeight() - 12);
+        g.drawImage(wordmarkImage, wordmarkArea.toFloat(), juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid);
+    }
+
+    // Pie de página tipo HUD ("AV-1 ... PRESS PLAY" del sitio, reinterpretado).
+    g.setColour(DecimuColours::textMuted);
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
+    auto footer = getLocalBounds().removeFromBottom(22).reduced(10, 3);
+    g.drawText("DECIMULABS · ACOUSTIC · GPLv3", footer, juce::Justification::centredLeft);
+    g.drawText("decimulabs.com", footer, juce::Justification::centredRight);
 }
 
 void DecimulAcousticEditor::resized()
 {
-    auto bounds = getLocalBounds().reduced(10);
+    auto bounds = getLocalBounds();
 
-    // --- Header: título + bypass ---
-    auto header = bounds.removeFromTop(36);
-    bypassButton.setBounds(header.removeFromRight(90));
-    titleLabel.setBounds(header);
+    // --- Header: logo (dibujado en paint()) + bypass/REC ---
+    auto header = bounds.removeFromTop(54).reduced(10, 8);
+    bypassButton.setBounds(header.removeFromRight(110));
+    headerLogoArea = header;
 
-    bounds.removeFromTop(10);
+    bounds.removeFromBottom(22); // footer HUD, dibujado en paint()
+    bounds = bounds.reduced(10, 10);
 
     // --- Banco de faders (orden tipo CLA Unplugged: input | 6 módulos | blend | output) ---
     auto faderArea = bounds;
