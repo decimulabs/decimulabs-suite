@@ -46,6 +46,12 @@ juce_add_binary_data(DecimulAcousticAssets SOURCES
 )
 set_target_properties(DecimulAcousticAssets PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
+# Sin esto, MSVC reinterpreta los literales de string no-ASCII del código fuente con
+# el codepage ANSI local en vez de UTF-8, y corrompe cualquier caracter especial (por
+# ejemplo "·" termina mostrándose como "Â·"). /utf-8 fija tanto el charset de lectura
+# del fuente como el de ejecución.
+target_compile_options(DecimulAcoustic PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+
 target_compile_definitions(DecimulAcoustic PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0

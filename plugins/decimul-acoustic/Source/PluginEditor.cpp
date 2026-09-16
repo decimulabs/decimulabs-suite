@@ -1,22 +1,89 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
 
+// ---------------------------------------------------------------------------
+// SimpleMeter: ladder de segmentos tipo VU (verde/amarillo/rojo), sin
+// ballistics/peak-hold real — a propósito simple.
+// ---------------------------------------------------------------------------
 void DecimulAcousticEditor::SimpleMeter::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colours::black);
 
-    constexpr float minDb = -60.0f, maxDb = 0.0f;
+    constexpr int numSegments = 16;
+    constexpr float minDb = -48.0f, maxDb = 0.0f;
     const float norm = juce::jlimit(0.0f, 1.0f, (levelDb - minDb) / (maxDb - minDb));
+    const int litSegments = juce::roundToInt(norm * (float) numSegments);
 
-    auto bounds = getLocalBounds().toFloat();
-    auto filled = bounds.removeFromBottom(bounds.getHeight() * norm);
-    g.setColour(DecimuColours::accentCyan);
-    g.fillRect(filled);
+    auto bounds = getLocalBounds();
+    constexpr int segGap = 1;
+    const int segHeight = juce::jmax(1, (bounds.getHeight() - segGap * (numSegments - 1)) / numSegments);
 
-    g.setColour(DecimuColours::textMuted);
-    g.drawRect(getLocalBounds());
+    for (int i = 0; i < numSegments; ++i)
+    {
+        // i = 0 es el segmento de más abajo.
+        auto segRect = juce::Rectangle<int>(bounds.getX(),
+                                             bounds.getBottom() - (i + 1) * (segHeight + segGap) + segGap,
+                                             bounds.getWidth(), segHeight);
+        juce::Colour c = DecimuColours::accentCyan;
+        if (i >= numSegments - 2)      c = DecimuColours::accentRec;   // últimos 2: zona de clip
+        else if (i >= numSegments - 5) c = juce::Colours::yellow;      // siguientes 3
+
+        g.setColour(i < litSegments ? c : DecimuColours::textMuted.withAlpha(0.15f));
+        g.fillRect(segRect);
+    }
 }
 
+// ---------------------------------------------------------------------------
+// LedStackSelector: N opciones apiladas verticalmente, un punto + texto cada
+// una, tipo Warm/Deep/Air-Cut de la referencia.
+// ---------------------------------------------------------------------------
+void DecimulAcousticEditor::LedStackSelector::paint(juce::Graphics& g)
+{
+    const int n = options.size();
+    if (n == 0)
+        return;
+
+    const int rowH = getHeight() / n;
+    for (int i = 0; i < n; ++i)
+    {
+        auto row = juce::Rectangle<int>(0, i * rowH, getWidth(), rowH);
+        const bool isSel = (i == selected);
+
+        auto dotArea = row.removeFromLeft(rowH).toFloat().reduced((float) rowH * 0.3f);
+        g.setColour(isSel ? DecimuColours::accentCyan : DecimuColours::textMuted.withAlpha(0.4f));
+        g.fillEllipse(dotArea);
+
+        g.setColour(isSel ? DecimuColours::text : DecimuColours::textMuted);
+        g.setFont(juce::Font(juce::FontOptions(12.5f)));
+        g.drawText(options[i], row.reduced(2, 0), juce::Justification::centredLeft);
+    }
+}
+
+void DecimulAcousticEditor::LedStackSelector::mouseUp(const juce::MouseEvent& e)
+{
+    const int n = options.size();
+    if (n == 0)
+        return;
+
+    const int rowH = juce::jmax(1, getHeight() / n);
+    const int idx = juce::jlimit(0, n - 1, e.y / rowH);
+    setSelectedIndex(idx);
+    if (onChange != nullptr)
+        onChange(idx);
+}
+
+void DecimulAcousticEditor::LedStackSelector::setSelectedIndex(int idx)
+{
+    if (idx != selected)
+    {
+        selected = idx;
+        repaint();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Editor
+// ---------------------------------------------------------------------------
 void DecimulAcousticEditor::setupFader(juce::Slider& slider, juce::Label& label, const juce::String& text)
 {
     slider.setSliderStyle(juce::Slider::LinearVertical);
@@ -29,11 +96,25 @@ void DecimulAcousticEditor::setupFader(juce::Slider& slider, juce::Label& label,
     addAndMakeVisible(label);
 }
 
-void DecimulAcousticEditor::setupCombo(juce::ComboBox& box, const juce::StringArray& items)
+void DecimulAcousticEditor::setupKnob(juce::Slider& knob)
 {
-    box.addItemList(items, 1);
-    box.setSelectedId(1, juce::dontSendNotification);
-    addAndMakeVisible(box);
+    knob.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    knob.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    addAndMakeVisible(knob);
+}
+
+void DecimulAcousticEditor::setupSelector(LedStackSelector& sel, const juce::StringArray& items,
+                                           const juce::String& paramID)
+{
+    sel.options = items;
+    sel.selected = (int) processorRef.apvts.getRawParameterValue(paramID)->load();
+    addAndMakeVisible(sel);
+
+    sel.onChange = [this, paramID, count = items.size()](int idx)
+    {
+        if (auto* param = processorRef.apvts.getParameter(paramID))
+            param->setValueNotifyingHost(idx / (float) juce::jmax(1, count - 1));
+    };
 }
 
 DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
@@ -54,12 +135,15 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     setupFader(blendSlider, blendLabel, "Blend");
     setupFader(outputSlider, outputLabel, "Output");
 
-    setupCombo(lowModeBox, { "Warm", "Deep", "Air-Cut" });
-    setupCombo(highModeBox, { "Silk", "Sheen", "Crisp" });
-    setupCombo(compModeBox, { "Glue", "Snap", "Squash" });
-    setupCombo(spaceATypeBox, { "Room", "Hall", "Cathedral" });
-    setupCombo(spaceBTypeBox, { "Close", "Wide", "Vast" });
-    setupCombo(echoDivisionBox, { "Slap", "8th", "Quarter" });
+    setupKnob(spaceAPreDelayKnob);
+    setupKnob(spaceBPreDelayKnob);
+
+    setupSelector(lowModeSel, { "Warm", "Deep", "Air-Cut" }, ParamIDs::lowMode);
+    setupSelector(highModeSel, { "Silk", "Sheen", "Crisp" }, ParamIDs::highMode);
+    setupSelector(compModeSel, { "Glue", "Snap", "Squash" }, ParamIDs::compMode);
+    setupSelector(spaceATypeSel, { "Room", "Hall", "Cathedral" }, ParamIDs::spaceAType);
+    setupSelector(spaceBTypeSel, { "Close", "Wide", "Vast" }, ParamIDs::spaceBType);
+    setupSelector(echoDivisionSel, { "Slap", "8th", "Quarter" }, ParamIDs::echoDivision);
 
     addAndMakeVisible(bypassButton);
     addAndMakeVisible(tapTempoButton);
@@ -82,17 +166,12 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     echoAttach    = std::make_unique<SliderAttachment>(apvts, ParamIDs::echoMix, echoSlider);
     blendAttach   = std::make_unique<SliderAttachment>(apvts, ParamIDs::blend, blendSlider);
     outputAttach  = std::make_unique<SliderAttachment>(apvts, ParamIDs::outputTrim, outputSlider);
-
-    lowModeAttach     = std::make_unique<ComboAttachment>(apvts, ParamIDs::lowMode, lowModeBox);
-    highModeAttach    = std::make_unique<ComboAttachment>(apvts, ParamIDs::highMode, highModeBox);
-    compModeAttach    = std::make_unique<ComboAttachment>(apvts, ParamIDs::compMode, compModeBox);
-    spaceATypeAttach  = std::make_unique<ComboAttachment>(apvts, ParamIDs::spaceAType, spaceATypeBox);
-    spaceBTypeAttach  = std::make_unique<ComboAttachment>(apvts, ParamIDs::spaceBType, spaceBTypeBox);
-    echoDivisionAttach = std::make_unique<ComboAttachment>(apvts, ParamIDs::echoDivision, echoDivisionBox);
+    spaceAPreDelayAttach = std::make_unique<SliderAttachment>(apvts, ParamIDs::spaceAPreDelay, spaceAPreDelayKnob);
+    spaceBPreDelayAttach = std::make_unique<SliderAttachment>(apvts, ParamIDs::spaceBPreDelay, spaceBPreDelayKnob);
 
     bypassAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
 
-    setSize(980, 500);
+    setSize(1000, 560);
     setResizable(true, true);
     startTimerHz(30);
 }
@@ -107,16 +186,28 @@ void DecimulAcousticEditor::paint(juce::Graphics& g)
 {
     g.fillAll(DecimuColours::background);
 
-    // Marco tipo "visor de cámara" (referencia al HUD del sitio: REC / timecode /
-    // marco de encuadre), sin reproducir su contenido, solo el gesto de un borde fino.
+    // Paneles agrupados, estilo "módulo" de hardware — se dibujan antes que los
+    // controles hijos, que quedan pintados encima automáticamente por JUCE.
+    auto drawPanel = [&](const juce::Rectangle<int>& r)
+    {
+        g.setColour(DecimuColours::panel.withAlpha(0.6f));
+        g.fillRoundedRectangle(r.toFloat(), 6.0f);
+        g.setColour(DecimuColours::textMuted.withAlpha(0.25f));
+        g.drawRoundedRectangle(r.toFloat(), 6.0f, 1.0f);
+    };
+    drawPanel(inputPanel);
+    drawPanel(mainPanel);
+    drawPanel(blendPanel);
+    drawPanel(outputPanel);
+
+    // Marco general tipo "visor de cámara" + separadores de header/footer.
     g.setColour(DecimuColours::textMuted.withAlpha(0.35f));
     g.drawRect(getLocalBounds(), 1);
     g.drawLine(0.0f, 54.0f, (float) getWidth(), 54.0f, 1.0f);
     g.drawLine(0.0f, (float) getHeight() - 22.0f, (float) getWidth(), (float) getHeight() - 22.0f, 1.0f);
 
-    // Copia local: headerLogoArea es un miembro (calculado una vez en resized()) y acá
-    // solo lo consultamos — si le hiciéramos removeFromLeft() directo se iría achicando
-    // en cada repintado sucesivo del editor.
+    // Copia local: headerLogoArea es un miembro (calculado una vez en resized()) — si
+    // le hiciéramos removeFromLeft() directo se iría achicando en cada repintado.
     auto logoArea = headerLogoArea;
     if (dogImage.isValid())
     {
@@ -151,48 +242,58 @@ void DecimulAcousticEditor::resized()
     bounds.removeFromBottom(22); // footer HUD, dibujado en paint()
     bounds = bounds.reduced(10, 10);
 
-    // --- Banco de faders (orden tipo CLA Unplugged: input | 6 módulos | blend | output) ---
-    auto faderArea = bounds;
-    const int numColumns = 9;
-    const int columnWidth = faderArea.getWidth() / numColumns;
+    // --- Paneles: Input | banco principal (6 módulos) | Blend | Output ---
+    constexpr int sideW = 110;
+    inputPanel = bounds.removeFromLeft(sideW);
+    bounds.removeFromLeft(8);
+    outputPanel = juce::Rectangle<int>(bounds.getRight() - sideW, bounds.getY(), sideW, bounds.getHeight());
+    bounds.removeFromRight(sideW + 8);
+    blendPanel = juce::Rectangle<int>(bounds.getRight() - sideW, bounds.getY(), sideW, bounds.getHeight());
+    bounds.removeFromRight(sideW + 8);
+    mainPanel = bounds;
 
-    auto layoutSimpleColumn = [&](juce::Rectangle<int> col, SimpleMeter* meter,
-                                   juce::Slider& slider, juce::Label& label)
+    // --- Input ---
+    {
+        auto col = inputPanel.reduced(6);
+        auto labelArea = col.removeFromBottom(20);
+        inputLabel.setBounds(labelArea);
+        auto meterArea = col.removeFromLeft(16);
+        inputMeter.setBounds(meterArea);
+        inputSlider.setBounds(col);
+    }
+
+    // --- Banco principal: 6 columnas (Low/High/Dynamics/Space A/Space B/Echo) ---
+    auto mainArea = mainPanel.reduced(6);
+    const int colW = mainArea.getWidth() / 6;
+
+    auto layoutModuleColumn = [&](juce::Rectangle<int> col, LedStackSelector& sel,
+                                   juce::Slider& slider, juce::Label& label, juce::Slider* knob)
     {
         col = col.reduced(4);
         auto labelArea = col.removeFromBottom(20);
         label.setBounds(labelArea);
 
-        if (meter != nullptr)
+        if (knob != nullptr)
         {
-            auto meterArea = col.removeFromLeft(16);
-            meter->setBounds(meterArea);
+            auto knobArea = col.removeFromTop(42);
+            knob->setBounds(knobArea.withSizeKeepingCentre(38, 38));
         }
+
+        auto selArea = col.removeFromTop(48);
+        sel.setBounds(selArea);
         slider.setBounds(col);
     };
 
-    auto layoutComboColumn = [&](juce::Rectangle<int> col, juce::ComboBox& box,
-                                  juce::Slider& slider, juce::Label& label)
-    {
-        col = col.reduced(4);
-        auto comboArea = col.removeFromTop(24);
-        box.setBounds(comboArea);
-        auto labelArea = col.removeFromBottom(20);
-        label.setBounds(labelArea);
-        slider.setBounds(col);
-    };
-
-    layoutSimpleColumn(faderArea.removeFromLeft(columnWidth), &inputMeter, inputSlider, inputLabel);
-    layoutComboColumn(faderArea.removeFromLeft(columnWidth), lowModeBox, lowSlider, lowLabel);
-    layoutComboColumn(faderArea.removeFromLeft(columnWidth), highModeBox, highSlider, highLabel);
-    layoutComboColumn(faderArea.removeFromLeft(columnWidth), compModeBox, compSlider, compLabel);
-    layoutComboColumn(faderArea.removeFromLeft(columnWidth), spaceATypeBox, spaceASlider, spaceALabel);
-    layoutComboColumn(faderArea.removeFromLeft(columnWidth), spaceBTypeBox, spaceBSlider, spaceBLabel);
-    layoutComboColumn(faderArea.removeFromLeft(columnWidth), echoDivisionBox, echoSlider, echoLabel);
+    layoutModuleColumn(mainArea.removeFromLeft(colW), lowModeSel, lowSlider, lowLabel, nullptr);
+    layoutModuleColumn(mainArea.removeFromLeft(colW), highModeSel, highSlider, highLabel, nullptr);
+    layoutModuleColumn(mainArea.removeFromLeft(colW), compModeSel, compSlider, compLabel, nullptr);
+    layoutModuleColumn(mainArea.removeFromLeft(colW), spaceATypeSel, spaceASlider, spaceALabel, &spaceAPreDelayKnob);
+    layoutModuleColumn(mainArea.removeFromLeft(colW), spaceBTypeSel, spaceBSlider, spaceBLabel, &spaceBPreDelayKnob);
+    layoutModuleColumn(mainArea, echoDivisionSel, echoSlider, echoLabel, nullptr);
 
     // --- Blend: comparte columna con el botón de Tap Tempo + BPM ---
     {
-        auto col = faderArea.removeFromLeft(columnWidth).reduced(4);
+        auto col = blendPanel.reduced(6);
         auto tapArea = col.removeFromTop(24);
         tapTempoButton.setBounds(tapArea);
         auto bpmArea = col.removeFromTop(16);
@@ -202,7 +303,15 @@ void DecimulAcousticEditor::resized()
         blendSlider.setBounds(col);
     }
 
-    layoutSimpleColumn(faderArea, &outputMeter, outputSlider, outputLabel);
+    // --- Output ---
+    {
+        auto col = outputPanel.reduced(6);
+        auto labelArea = col.removeFromBottom(20);
+        outputLabel.setBounds(labelArea);
+        auto meterArea = col.removeFromLeft(16);
+        outputMeter.setBounds(meterArea);
+        outputSlider.setBounds(col);
+    }
 }
 
 void DecimulAcousticEditor::timerCallback()
@@ -215,4 +324,14 @@ void DecimulAcousticEditor::timerCallback()
 
     bpmLabel.setText(juce::String((int) processorRef.manualBpm.load()) + " BPM",
                       juce::dontSendNotification);
+
+    // Sincroniza los selectores tipo LED con el valor real del parámetro (por si
+    // cambió por automatización de host o al cargar un preset, no solo por click).
+    auto& apvts = processorRef.apvts;
+    lowModeSel.setSelectedIndex((int) apvts.getRawParameterValue(ParamIDs::lowMode)->load());
+    highModeSel.setSelectedIndex((int) apvts.getRawParameterValue(ParamIDs::highMode)->load());
+    compModeSel.setSelectedIndex((int) apvts.getRawParameterValue(ParamIDs::compMode)->load());
+    spaceATypeSel.setSelectedIndex((int) apvts.getRawParameterValue(ParamIDs::spaceAType)->load());
+    spaceBTypeSel.setSelectedIndex((int) apvts.getRawParameterValue(ParamIDs::spaceBType)->load());
+    echoDivisionSel.setSelectedIndex((int) apvts.getRawParameterValue(ParamIDs::echoDivision)->load());
 }

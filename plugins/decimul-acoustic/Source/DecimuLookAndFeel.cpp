@@ -1,5 +1,6 @@
 #include "DecimuLookAndFeel.h"
 #include "BinaryData.h"
+#include <cmath>
 
 namespace
 {
@@ -76,14 +77,69 @@ void DecimuLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
     g.setGradientFill(grad);
     g.fillRect(fill);
 
-    // Thumb: barra horizontal tipo fader real, con una línea-ranura al medio.
-    constexpr float thumbHeight = 8.0f;
+    // Línea de referencia en 0 para sliders bipolares (dB): mismo gesto que las marcas
+    // "-10 / 0 / +10" de un fader de hardware, simplificado a la línea de unity gain.
+    if (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0)
+    {
+        const float zeroProp = (float) slider.valueToProportionOfLength(0.0);
+        const float zeroY = juce::jmap(zeroProp, 0.0f, 1.0f, bottomY, topY);
+        g.setColour(DecimuColours::textMuted.withAlpha(0.8f));
+        g.drawLine(bounds.getX(), zeroY, bounds.getRight(), zeroY, 1.0f);
+    }
+
+    // Thumb: cápsula tipo fader real, con degradé metálico y una línea-ranura al medio.
+    constexpr float thumbHeight = 10.0f;
     auto thumb = juce::Rectangle<float>(bounds.getX(), sliderPos - thumbHeight * 0.5f,
                                           bounds.getWidth(), thumbHeight);
-    g.setColour(slider.isMouseOverOrDragging() ? juce::Colours::white : DecimuColours::text);
-    g.fillRect(thumb);
+    const bool active = slider.isMouseOverOrDragging();
+    juce::ColourGradient thumbGrad(active ? juce::Colours::white : DecimuColours::text.brighter(0.2f),
+                                    thumb.getX(), thumb.getY(),
+                                    active ? DecimuColours::accentBlueSoft : DecimuColours::textMuted,
+                                    thumb.getX(), thumb.getBottom(), false);
+    g.setGradientFill(thumbGrad);
+    g.fillRoundedRectangle(thumb, 2.0f);
     g.setColour(DecimuColours::background);
     g.drawLine(thumb.getX() + 2.0f, sliderPos, thumb.getRight() - 2.0f, sliderPos, 1.5f);
+}
+
+void DecimuLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
+                                          float sliderPosProportional, float rotaryStartAngle,
+                                          float rotaryEndAngle, juce::Slider&)
+{
+    auto bounds = juce::Rectangle<float>((float) x, (float) y, (float) width, (float) height).reduced(3.0f);
+    const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f;
+    const auto centre = bounds.getCentre();
+    const float angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
+
+    // Aro de fondo (todo el recorrido posible).
+    juce::Path bgArc;
+    bgArc.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
+    g.setColour(DecimuColours::trackFill);
+    g.strokePath(bgArc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    // Arco de valor (desde el mínimo hasta la posición actual), degradé azul->cian.
+    juce::Path valueArc;
+    valueArc.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, rotaryStartAngle, angle, true);
+    juce::ColourGradient arcGrad(DecimuColours::accentBlue, centre.x - radius, centre.y,
+                                  DecimuColours::accentCyan, centre.x + radius, centre.y, false);
+    g.setGradientFill(arcGrad);
+    g.strokePath(valueArc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    // Cuerpo del knob: degradé sutil tipo metal cepillado + borde.
+    auto knobBounds = bounds.reduced(radius * 0.32f);
+    juce::ColourGradient bodyGrad(DecimuColours::panel.brighter(0.2f), knobBounds.getX(), knobBounds.getY(),
+                                   DecimuColours::panel.darker(0.5f), knobBounds.getRight(), knobBounds.getBottom(), false);
+    g.setGradientFill(bodyGrad);
+    g.fillEllipse(knobBounds);
+    g.setColour(DecimuColours::textMuted.withAlpha(0.6f));
+    g.drawEllipse(knobBounds, 1.0f);
+
+    // Puntero: línea blanca desde el centro hacia el borde, en la dirección del valor.
+    // (Convención de addCentredArc: 0 rad = arriba, positivo = sentido horario.)
+    juce::Point<float> pointerEnd(centre.x + radius * 0.62f * std::sin(angle),
+                                   centre.y - radius * 0.62f * std::cos(angle));
+    g.setColour(juce::Colours::white);
+    g.drawLine({ centre, pointerEnd }, 2.0f);
 }
 
 void DecimuLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, bool,

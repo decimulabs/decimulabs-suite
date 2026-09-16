@@ -128,6 +128,13 @@ void DecimulAcousticProcessor::prepareToPlay(double sampleRate, int samplesPerBl
     delayLine.prepare(spec);
     delayLine.reset();
 
+    preDelayA.setMaximumDelayInSamples((int) (0.6 * sampleRate));
+    preDelayB.setMaximumDelayInSamples((int) (0.6 * sampleRate));
+    preDelayA.prepare(spec);
+    preDelayB.prepare(spec);
+    preDelayA.reset();
+    preDelayB.reset();
+
     dryBuffer.setSize((int) spec.numChannels, samplesPerBlock);
     scratchBuffer.setSize((int) spec.numChannels, samplesPerBlock);
     reverbScratch.setSize((int) spec.numChannels, samplesPerBlock);
@@ -298,6 +305,14 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
             juce::dsp::AudioBlock<float> block(reverbScratch);
             auto subBlock = block.getSubBlock(0, (size_t) numSamples);
             juce::dsp::ProcessContextReplacing<float> context(subBlock);
+
+            const float preDelayMs = apvts.getRawParameterValue(ParamIDs::spaceAPreDelay)->load();
+            if (preDelayMs > 0.01f)
+            {
+                preDelayA.setDelay(juce::jmin((float) preDelayA.getMaximumDelayInSamples(),
+                                               preDelayMs * 0.001f * (float) currentSampleRate));
+                preDelayA.process(context);
+            }
             reverbA.process(context);
 
             for (int ch = 0; ch < numChannels; ++ch)
@@ -327,6 +342,14 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
             juce::dsp::AudioBlock<float> block(reverbScratch);
             auto subBlock = block.getSubBlock(0, (size_t) numSamples);
             juce::dsp::ProcessContextReplacing<float> context(subBlock);
+
+            const float preDelayMs = apvts.getRawParameterValue(ParamIDs::spaceBPreDelay)->load();
+            if (preDelayMs > 0.01f)
+            {
+                preDelayB.setDelay(juce::jmin((float) preDelayB.getMaximumDelayInSamples(),
+                                               preDelayMs * 0.001f * (float) currentSampleRate));
+                preDelayB.process(context);
+            }
             reverbB.process(context);
 
             for (int ch = 0; ch < numChannels; ++ch)

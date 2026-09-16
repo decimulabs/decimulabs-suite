@@ -51,9 +51,9 @@ namespace ParamIDs
       recalculan una vez por bloque, sin interpolación — mover esos controles rápido
       durante reproducción puede sonar a "zipper" leve. Input/Output sí están suavizados
       (juce::dsp::Gain con rampa).
-    - `spaceAPreDelay(Sync)` / `spaceBPreDelay(Sync)` y `compOversample` están declarados
-      como parámetros pero todavía NO afectan el audio (pre-delay real y oversampling
-      quedan para la integración con Airwindows).
+    - `spaceAPreDelay` / `spaceBPreDelay` (ms libres) ya afectan el audio (delay real
+      antes de cada reverb). Los toggles `...Sync` y `compOversample` siguen sin
+      efecto — quedan para la integración con Airwindows.
     - El feedback del Echo es una constante interna (0.35), todavía no es un parámetro.
 */
 class DecimulAcousticProcessor : public juce::AudioProcessor
@@ -120,8 +120,10 @@ private:
     // --- Dynamics: compresor real, mapeado desde compAmount/compMode ---
     juce::dsp::Compressor<float> compressor;
 
-    // --- Space A / Space B: reverbs en paralelo (Freeverb vía juce::dsp::Reverb) ---
+    // --- Space A / Space B: reverbs en paralelo (Freeverb vía juce::dsp::Reverb),
+    // cada uno con su propio pre-delay real (delay simple, sin feedback) ---
     juce::dsp::Reverb reverbA, reverbB;
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> preDelayA { 48000 }, preDelayB { 48000 };
 
     // --- Echo: delay con feedback, tempo-synced (host BPM o manualBpm) ---
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 192000 };
