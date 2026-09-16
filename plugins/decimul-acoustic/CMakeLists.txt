@@ -40,6 +40,7 @@ target_sources(DecimulAcoustic PRIVATE
 juce_add_binary_data(DecimulAcousticAssets SOURCES
     Assets/wordmark.png
     Assets/dog.png
+    Assets/studio-bg.jpg
     Assets/ChakraPetch-Regular.ttf
     Assets/ChakraPetch-Bold.ttf
     Assets/VT323-Regular.ttf

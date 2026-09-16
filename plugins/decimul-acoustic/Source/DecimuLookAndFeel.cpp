@@ -182,7 +182,16 @@ void DecimuLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& 
     const bool bypassed = button.getToggleState();
 
     auto dotArea = bounds.removeFromLeft(bounds.getHeight()).reduced(5.0f);
-    g.setColour(bypassed ? DecimuColours::textMuted : DecimuColours::accentRec);
+
+    // El punto "REC" pulsa suavemente cuando el plugin está activo (no bypassed) — el
+    // editor llama a bypassButton.repaint() a 30Hz para animarlo (ver timerCallback).
+    float alpha = 1.0f;
+    if (!bypassed)
+    {
+        const double phase = juce::Time::getMillisecondCounterHiRes() * 0.003;
+        alpha = 0.55f + 0.45f * (float) std::sin(phase);
+    }
+    g.setColour((bypassed ? DecimuColours::textMuted : DecimuColours::accentRec).withAlpha(alpha));
     g.fillEllipse(dotArea);
 
     g.setColour(bypassed ? DecimuColours::textMuted : DecimuColours::text);

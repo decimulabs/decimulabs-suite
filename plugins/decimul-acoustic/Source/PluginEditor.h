@@ -55,7 +55,7 @@ private:
     DecimulAcousticProcessor& processorRef;
     DecimuLookAndFeel lookAndFeel;
 
-    juce::Image wordmarkImage, dogImage;
+    juce::Image wordmarkImage, dogImage, studioBgImage;
     juce::Rectangle<int> headerLogoArea;
 
     // Rectángulos de agrupación (paneles tipo "módulo de hardware"), calculados en

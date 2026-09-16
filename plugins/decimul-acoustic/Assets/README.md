@@ -8,6 +8,7 @@ decimulabs en vez de inventar una paleta genérica.
 |---|---|---|
 | `wordmark.png` | `decimulabs.com/logo/wordmark.png` | Propiedad de decimulabs |
 | `dog.png` | `decimulabs.com/logo/dog.png` | Propiedad de decimulabs |
+| `studio-bg.jpg` | `decimulabs.com/studio/studio-01.webp`, reescalada a 160x120 y reconvertida a JPEG vía canvas del navegador (no hay conversor de imagen instalado en esta máquina) | Propiedad de decimulabs — foto real del estudio, usada como fondo muy oscurecido/difuminado en la UI |
 | `ChakraPetch-Regular.ttf` / `ChakraPetch-Bold.ttf` | [Google Fonts — Chakra Petch](https://fonts.google.com/specimen/Chakra+Petch) | SIL Open Font License 1.1 (ver `ChakraPetch-OFL.txt`) — libre, redistribuible, incluso embebida en un binario |
 | `VT323-Regular.ttf` | [Google Fonts — VT323](https://fonts.google.com/specimen/VT323) | SIL Open Font License 1.1 (ver `VT323-OFL.txt`) |
 

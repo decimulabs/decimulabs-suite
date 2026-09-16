@@ -90,7 +90,8 @@ void DecimulAcousticEditor::setupFader(juce::Slider& slider, juce::Label& label,
     slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 18);
     addAndMakeVisible(slider);
 
-    label.setText(text, juce::dontSendNotification);
+    // Estilo "[ NAV ]" del sitio (ver [ESTUDIO] [MÚSICA] [VISUAL] [CONTACTO] en el header real).
+    label.setText("[ " + text.toUpperCase() + " ]", juce::dontSendNotification);
     label.setJustificationType(juce::Justification::centred);
     label.setColour(juce::Label::textColourId, DecimuColours::text);
     addAndMakeVisible(label);
@@ -124,6 +125,7 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
 
     wordmarkImage = juce::ImageFileFormat::loadFrom(BinaryData::wordmark_png, (size_t) BinaryData::wordmark_pngSize);
     dogImage = juce::ImageFileFormat::loadFrom(BinaryData::dog_png, (size_t) BinaryData::dog_pngSize);
+    studioBgImage = juce::ImageFileFormat::loadFrom(BinaryData::studiobg_jpg, (size_t) BinaryData::studiobg_jpgSize);
 
     setupFader(inputSlider, inputLabel, "Input");
     setupFader(lowSlider, lowLabel, "Low");
@@ -186,13 +188,32 @@ void DecimulAcousticEditor::paint(juce::Graphics& g)
 {
     g.fillAll(DecimuColours::background);
 
+    // Fondo: foto real del estudio (decimulabs.com/studio), difuminada por venir de
+    // una imagen chica escalada hacia arriba, muy oscurecida + scanlines + viñeta —
+    // mismo gesto que el hero del sitio (foto atenuada detrás del HUD "REC/timecode").
+    if (studioBgImage.isValid())
+        g.drawImage(studioBgImage, getLocalBounds().toFloat(), juce::RectanglePlacement::fillDestination);
+
+    g.setColour(DecimuColours::background.withAlpha(0.86f));
+    g.fillRect(getLocalBounds());
+
+    g.setColour(juce::Colours::black.withAlpha(0.25f));
+    for (int y = 0; y < getHeight(); y += 3)
+        g.drawLine(0.0f, (float) y, (float) getWidth(), (float) y, 1.0f);
+
+    juce::ColourGradient vignette(juce::Colours::transparentBlack, getWidth() * 0.5f, getHeight() * 0.5f,
+                                   juce::Colours::black.withAlpha(0.6f), 0.0f, 0.0f, true);
+    g.setGradientFill(vignette);
+    g.fillRect(getLocalBounds());
+
     // Paneles agrupados, estilo "módulo" de hardware — se dibujan antes que los
-    // controles hijos, que quedan pintados encima automáticamente por JUCE.
+    // controles hijos, que quedan pintados encima automáticamente por JUCE. Un poco
+    // más opacos que antes para mantener legibilidad contra el fondo con textura.
     auto drawPanel = [&](const juce::Rectangle<int>& r)
     {
-        g.setColour(DecimuColours::panel.withAlpha(0.6f));
+        g.setColour(DecimuColours::panel.withAlpha(0.82f));
         g.fillRoundedRectangle(r.toFloat(), 6.0f);
-        g.setColour(DecimuColours::textMuted.withAlpha(0.25f));
+        g.setColour(DecimuColours::textMuted.withAlpha(0.3f));
         g.drawRoundedRectangle(r.toFloat(), 6.0f, 1.0f);
     };
     drawPanel(inputPanel);
@@ -226,7 +247,7 @@ void DecimulAcousticEditor::paint(juce::Graphics& g)
     g.setColour(DecimuColours::textMuted);
     g.setFont(juce::Font(juce::FontOptions(13.0f)));
     auto footer = getLocalBounds().removeFromBottom(22).reduced(10, 3);
-    g.drawText("DECIMULABS · ACOUSTIC · GPLv3", footer, juce::Justification::centredLeft);
+    g.drawText("DECIMULABS - ACOUSTIC - GPLv3", footer, juce::Justification::centredLeft);
     g.drawText("decimulabs.com", footer, juce::Justification::centredRight);
 }
 
@@ -321,6 +342,8 @@ void DecimulAcousticEditor::timerCallback()
 
     outputMeter.levelDb = processorRef.outputPeakDb.load();
     outputMeter.repaint();
+
+    bypassButton.repaint(); // anima el pulso del punto "REC" (ver DecimuLookAndFeel)
 
     bpmLabel.setText(juce::String((int) processorRef.manualBpm.load()) + " BPM",
                       juce::dontSendNotification);
