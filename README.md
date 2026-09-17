@@ -18,31 +18,63 @@ agregado" en cada spec).
 - Botón de "donar" (Ko-fi/Patreon/Buy Me a Coffee) en el about-box de cada plugin, nada de
   paywall ni trial.
 
+## `shared/`: la base visual de toda la suite
+
+Todos los plugins de la línea "channel strip" (Acoustic, y a futuro Guitars/Bass/Drums/
+Vocals, siguiendo la idea de colección tipo CLA Artist Series) comparten la misma
+identidad de hardware — chasis de metal cepillado, compartimentos con bisel, knobs con
+relieve real, tornillos Phillips, manijas de rack, selectores tipo LED-stack, meters
+segmentados, VU en arco — para que la suite se sienta como una familia de productos, no
+como plugins sueltos con estilos distintos.
+
+Esa estética vive **una sola vez**, en [`shared/`](shared), no copiada en cada plugin:
+
+- `shared/Source/DecimuLookAndFeel.h/.cpp` — paleta, tipografías (Chakra Petch + VT323,
+  las mismas del sitio), y el dibujo de knobs/faders/combos/botones.
+- `shared/Source/DecimuChrome.h/.cpp` — funciones de dibujo del "chasis" (fondo,
+  tornillos, manijas de rack, compartimentos con bisel, LED de knob). Son funciones
+  libres, no Componentes — cada plugin arma su propio layout de módulos y llama a estas
+  funciones desde su `PluginEditor::paint()`.
+- `shared/Source/DecimuLedStackSelector.h/.cpp`, `DecimuLadderMeter.h/.cpp`,
+  `DecimuVuArc.h/.cpp` — Componentes reutilizables (selector de 2-4 opciones, meter
+  segmentado, VU en arco).
+- `shared/Assets/` — logo (`wordmark.png`, `dog.png`), tipografías OFL, foto del estudio.
+  Ver [shared/Assets/README.md](shared/Assets/README.md) para origen y licencias.
+
+Un plugin nuevo linkea `shared/` desde su `CMakeLists.txt` (`add_subdirectory` +
+`target_link_libraries(... decimu_shared_ui)`, ver el de
+[plugins/decimul-acoustic](plugins/decimul-acoustic/CMakeLists.txt)) y solo tiene que
+escribir su propio DSP (`PluginProcessor`) y componer su propio layout de módulos
+(`PluginEditor`) — la identidad visual sale gratis.
+
 ## Plugins planeados
 
 | Plugin | Estado | Carpeta |
 |---|---|---|
-| **DecimuLabs Acoustic** — multiefecto para voz/instrumentos acústicos | 🟡 spec + esqueleto listo, falta UI y DSP real | [plugins/decimul-acoustic](plugins/decimul-acoustic) |
+| **DecimuLabs Acoustic** — multiefecto para voz/instrumentos acústicos | 🟢 DSP de referencia + UI completa (basada en `shared/`) | [plugins/decimul-acoustic](plugins/decimul-acoustic) |
 | **Decimul SF2** — reproductor de soundfonts (sampler) | ⚪ pendiente | [plugins/sf2-player](plugins/sf2-player) |
-| *(a definir)* | ⚪ idea abierta | — |
+| **Guitars / Bass / Drums / Vocals** (a definir) | ⚪ ideas abiertas, reusarían `shared/` | — |
 
 ## Estructura del repo
 
 ```
 decimulabs-suite/
 ├── docs/
-│   └── research/          → análisis de plugins de referencia y de módulos DSP libres
+│   ├── research/           → análisis de plugins de referencia y de módulos DSP libres
+│   └── mockups/            → mockups HTML de UI (previos a implementar en JUCE)
+├── shared/                 → LookAndFeel + chrome + componentes + assets de marca,
+│                              comunes a toda la suite (ver sección de arriba)
 ├── plugins/
-│   ├── decimul-acoustic/  → primer plugin (spec + esqueleto JUCE)
-│   └── sf2-player/        → segundo plugin (pendiente)
-├── third_party/           → JUCE (submódulo) + DSP vendorizado de terceros con su licencia
-└── branding/              → logo, paleta de color, assets de decimulabs
+│   ├── decimul-acoustic/   → primer plugin (DSP + UI completos)
+│   └── sf2-player/         → segundo plugin (pendiente)
+└── third_party/            → DSP vendorizado de terceros con su licencia (Airwindows, etc.)
 ```
 
-## Cómo compilar (cuando haya código real)
+## Cómo compilar
 
-Cada plugin es un proyecto CMake independiente que descarga JUCE vía `FetchContent`.
-Requisitos en Windows: **Visual Studio 2022** (Desktop development with C++) + **CMake**.
+Cada plugin es un proyecto CMake independiente que descarga JUCE vía `FetchContent` y
+linkea `shared/`. Requisitos en Windows: **Visual Studio 2022** (Desktop development with
+C++) + **CMake**.
 
 ```bash
 cd plugins/decimul-acoustic

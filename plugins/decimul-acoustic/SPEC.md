@@ -5,11 +5,15 @@ nylon). Inspirado en la estructura del Waves CLA Unplugged (ver
 [docs/research/cla-unplugged-analysis.md](../../docs/research/cla-unplugged-analysis.md)),
 reinterpretado con nombres propios y funciones nuevas.
 
-Estado: **spec cerrada, parámetros 100% cableados, y DSP de referencia funcionando**
-(Tone/Dynamics/Space A+B/Echo/Blend con clases built-in de `juce::dsp` — no es todavía
-la calidad final basada en Airwindows, ver limitaciones conocidas al inicio de
-`PluginProcessor.h`). El editor hoy es el `juce::GenericAudioProcessorEditor` (perillas
-automáticas) — falta el diseño visual custom.
+Estado: **spec cerrada, parámetros 100% cableados, DSP de referencia funcionando, y UI
+completa** (chasis de metal cepillado, compartimentos, knobs, faders, selectores tipo
+LED, VU en arco — implementación en JUCE del mockup 3, ver
+[docs/mockups/acoustic-panel-realistic-mockup.html](../../docs/mockups/acoustic-panel-realistic-mockup.html)).
+El DSP sigue siendo una implementación de REFERENCIA con clases built-in de
+`juce::dsp` — no es todavía la calidad final basada en Airwindows, ver limitaciones
+conocidas al inicio de `PluginProcessor.h`. El "look" (LookAndFeel + chrome +
+componentes) vive en [shared/](../../shared), no en este plugin — ver el README de la
+raíz del repo.
 
 ## Cadena de señal
 
@@ -45,6 +49,7 @@ original: dos reverbs independientes, no en serie), se suman, y ahí entra el Ec
 | `spaceBPreDelaySync` | Space B Pre-Delay Sync | bool | on/off | off | |
 | `echoMix` | Echo | float 0-100% | 0..100 | 0 | |
 | `echoDivision` | Echo Division | choice | Slap / 8th / Quarter | Slap | tempo-synced |
+| `echoFeedback` | Echo Feedback | float 0-100% | 0..100 | 35 | knob; 100% = repeticiones sin decaer (no diverge, pero no baja) |
 | `blend` | Blend (Dry/Wet) | float % | 0..100 | 100 | reemplaza el "Direct on/off" binario por mezcla continua |
 | `outputTrim` | Output | float dB | -24..+24 | 0 | |
 | `bypass` | Bypass general | bool | — | off | |
@@ -81,7 +86,7 @@ igual que los dos componentes del CLA Unplugged original — ver `isBusesLayoutS
 
 ## Próximo paso
 
-Con este spec + los parámetros ya definidos en `PluginProcessor` (ver esqueleto en
-`Source/`), lo que falta es puramente **UI**: layout de los 9 módulos, estilo visual
-(paleta/branding de decimulabs), y componentes custom (faders, selectores de
-carácter tipo segmented-button, meters).
+UI y DSP de referencia listos. Lo que queda es reemplazar el DSP de referencia por
+Airwindows (ver docs/research/dsp-references.md) para pasar de "suena a compresor/
+reverb genéricos" a la calidad final. La UI no debería necesitar cambios para eso —
+los parámetros son los mismos, solo cambia qué hay detrás de cada uno.

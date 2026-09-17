@@ -7,7 +7,11 @@
     fondo casi negro, texto gris-azulado, acentos rojo/naranja (el punto "REC" del
     sitio), cian y azul. Tipografías: Chakra Petch (texto de módulos, igual que el
     body del sitio) + VT323 (números/HUD, igual que el contador "REC 0:00" del sitio).
-    Ver Assets/README.md para el origen y la licencia de cada asset.
+    Ver shared/Assets/README.md para el origen y la licencia de cada asset.
+
+    Esto vive en shared/ (no en un plugin puntual) porque es la base visual de TODA
+    la suite decimulabs — cuando se sumen Guitars/Bass/Drums/etc., linkean esto mismo
+    en vez de reimplementar knobs/faders/paleta desde cero. Ver shared/CMakeLists.txt.
 */
 namespace DecimuColours
 {
@@ -26,6 +30,11 @@ class DecimuLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     DecimuLookAndFeel();
+
+    // Para que otros helpers de dibujo (ver DecimuChrome.h) usen las mismas
+    // tipografías de marca sin recargarlas desde BinaryData.
+    juce::Font displayFont(float height, bool bold = false) const;
+    juce::Font monoFont(float height) const;
 
     juce::Font getLabelFont(juce::Label&) override;
     juce::Font getComboBoxFont(juce::ComboBox&) override;
@@ -47,8 +56,8 @@ public:
                                bool isMouseOverButton, bool isButtonDown) override;
 
     // El toggle de Bypass se dibuja como el indicador "REC" del sitio: punto
-    // encendido (rojo, acentRec) + texto "REC" cuando el plugin está procesando
-    // (no bypassed); punto apagado + "BYPASS" en gris cuando está en bypass.
+    // encendido (rojo, acentRec, pulsando) cuando el plugin está procesando (no
+    // bypassed); punto apagado + "BYPASS" en gris cuando está en bypass.
     void drawToggleButton(juce::Graphics&, juce::ToggleButton&,
                            bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 

@@ -37,19 +37,29 @@ DecimuLookAndFeel::DecimuLookAndFeel()
     setColour(juce::TextButton::textColourOnId, DecimuColours::background);
 }
 
+juce::Font DecimuLookAndFeel::displayFont(float height, bool bold) const
+{
+    return makeFont(bold ? chakraBold : chakraRegular, height);
+}
+
+juce::Font DecimuLookAndFeel::monoFont(float height) const
+{
+    return makeFont(vt323, height);
+}
+
 juce::Font DecimuLookAndFeel::getLabelFont(juce::Label&)
 {
-    return makeFont(chakraRegular, 15.0f);
+    return displayFont(15.0f);
 }
 
 juce::Font DecimuLookAndFeel::getComboBoxFont(juce::ComboBox&)
 {
-    return makeFont(vt323, 20.0f);
+    return monoFont(20.0f);
 }
 
 juce::Font DecimuLookAndFeel::getTextButtonFont(juce::TextButton&, int)
 {
-    return makeFont(vt323, 18.0f);
+    return monoFont(18.0f);
 }
 
 void DecimuLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
@@ -87,18 +97,29 @@ void DecimuLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
         g.drawLine(bounds.getX(), zeroY, bounds.getRight(), zeroY, 1.0f);
     }
 
-    // Thumb: cápsula tipo fader real, con degradé metálico y una línea-ranura al medio.
-    constexpr float thumbHeight = 10.0f;
+    // Thumb: cápsula cromada de verdad (degradé de 5 tonos) con sombra proyectada,
+    // en vez del degradé de 2 tonos de la primera versión.
+    constexpr float thumbHeight = 11.0f;
     auto thumb = juce::Rectangle<float>(bounds.getX(), sliderPos - thumbHeight * 0.5f,
                                           bounds.getWidth(), thumbHeight);
+
+    juce::Path thumbPath;
+    thumbPath.addRoundedRectangle(thumb, 2.0f);
+    juce::DropShadow(juce::Colours::black.withAlpha(0.55f), 5, { 0, 2 }).drawForPath(g, thumbPath);
+
     const bool active = slider.isMouseOverOrDragging();
-    juce::ColourGradient thumbGrad(active ? juce::Colours::white : DecimuColours::text.brighter(0.2f),
-                                    thumb.getX(), thumb.getY(),
-                                    active ? DecimuColours::accentBlueSoft : DecimuColours::textMuted,
+    juce::ColourGradient thumbGrad(juce::Colours::white, thumb.getX(), thumb.getY(),
+                                    active ? DecimuColours::accentBlueSoft : juce::Colour(0xff5a6280),
                                     thumb.getX(), thumb.getBottom(), false);
+    thumbGrad.addColour(0.18, juce::Colour(0xffd7dce6));
+    thumbGrad.addColour(0.46, juce::Colour(0xff98a3ba));
+    thumbGrad.addColour(0.58, juce::Colour(0xffb7c0d4));
     g.setGradientFill(thumbGrad);
-    g.fillRoundedRectangle(thumb, 2.0f);
-    g.setColour(DecimuColours::background);
+    g.fillPath(thumbPath);
+    g.setColour(juce::Colours::black.withAlpha(0.7f));
+    g.strokePath(thumbPath, juce::PathStrokeType(1.0f));
+
+    g.setColour(DecimuColours::background.withAlpha(0.6f));
     g.drawLine(thumb.getX() + 2.0f, sliderPos, thumb.getRight() - 2.0f, sliderPos, 1.5f);
 }
 
@@ -111,34 +132,59 @@ void DecimuLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int wi
     const auto centre = bounds.getCentre();
     const float angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
 
-    // Aro de fondo (todo el recorrido posible).
-    juce::Path bgArc;
-    bgArc.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour(DecimuColours::trackFill);
-    g.strokePath(bgArc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    // Aro de marcas radiales tipo potenciómetro real (antes era solo un arco liso).
+    constexpr int numTicks = 20;
+    for (int i = 0; i <= numTicks; ++i)
+    {
+        const float t = rotaryStartAngle + (float) i / (float) numTicks * (rotaryEndAngle - rotaryStartAngle);
+        const float inner = radius * 0.86f, outer = radius * 0.98f;
+        juce::Point<float> p1(centre.x + inner * std::sin(t), centre.y - inner * std::cos(t));
+        juce::Point<float> p2(centre.x + outer * std::sin(t), centre.y - outer * std::cos(t));
+        g.setColour(DecimuColours::textMuted.withAlpha(0.5f));
+        g.drawLine({ p1, p2 }, 1.0f);
+    }
 
     // Arco de valor (desde el mínimo hasta la posición actual), degradé azul->cian.
     juce::Path valueArc;
-    valueArc.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, rotaryStartAngle, angle, true);
+    valueArc.addCentredArc(centre.x, centre.y, radius * 0.78f, radius * 0.78f, 0.0f, rotaryStartAngle, angle, true);
     juce::ColourGradient arcGrad(DecimuColours::accentBlue, centre.x - radius, centre.y,
                                   DecimuColours::accentCyan, centre.x + radius, centre.y, false);
     g.setGradientFill(arcGrad);
     g.strokePath(valueArc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-    // Cuerpo del knob: degradé sutil tipo metal cepillado + borde.
-    auto knobBounds = bounds.reduced(radius * 0.32f);
-    juce::ColourGradient bodyGrad(DecimuColours::panel.brighter(0.2f), knobBounds.getX(), knobBounds.getY(),
-                                   DecimuColours::panel.darker(0.5f), knobBounds.getRight(), knobBounds.getBottom(), false);
+    // Cuerpo del knob: sombra proyectada + degradé base + brillo especular arriba a
+    // la izquierda, como una perilla real fotografiada con una luz de arriba.
+    auto knobBounds = bounds.reduced(radius * 0.34f);
+
+    juce::Path knobPath;
+    knobPath.addEllipse(knobBounds);
+    juce::DropShadow(juce::Colours::black.withAlpha(0.6f), 8, { 0, 3 }).drawForPath(g, knobPath);
+
+    juce::ColourGradient bodyGrad(juce::Colour(0xff454b60), knobBounds.getX(), knobBounds.getY(),
+                                   juce::Colour(0xff1a1c26), knobBounds.getRight(), knobBounds.getBottom(), false);
     g.setGradientFill(bodyGrad);
     g.fillEllipse(knobBounds);
-    g.setColour(DecimuColours::textMuted.withAlpha(0.6f));
+
+    juce::ColourGradient highlight(juce::Colours::white.withAlpha(0.35f),
+                                    knobBounds.getX() + knobBounds.getWidth() * 0.32f,
+                                    knobBounds.getY() + knobBounds.getHeight() * 0.26f,
+                                    juce::Colours::transparentWhite,
+                                    knobBounds.getX() + knobBounds.getWidth() * 0.32f,
+                                    knobBounds.getY() + knobBounds.getHeight() * 0.75f, true);
+    g.setGradientFill(highlight);
+    g.fillEllipse(knobBounds);
+
+    g.setColour(juce::Colours::black.withAlpha(0.8f));
     g.drawEllipse(knobBounds, 1.0f);
 
-    // Puntero: línea blanca desde el centro hacia el borde, en la dirección del valor.
-    // (Convención de addCentredArc: 0 rad = arriba, positivo = sentido horario.)
-    juce::Point<float> pointerEnd(centre.x + radius * 0.62f * std::sin(angle),
-                                   centre.y - radius * 0.62f * std::cos(angle));
-    g.setColour(juce::Colours::white);
+    // Puntero con leve resplandor.
+    juce::Point<float> pointerEnd(centre.x + radius * 0.6f * std::sin(angle),
+                                   centre.y - radius * 0.6f * std::cos(angle));
+    g.setColour(DecimuColours::accentCyan.withAlpha(0.4f));
+    g.drawLine({ centre, pointerEnd }, 4.0f);
+    juce::ColourGradient pointerGrad(DecimuColours::accentCyan, centre.x, centre.y,
+                                      DecimuColours::accentBlueSoft, pointerEnd.x, pointerEnd.y, false);
+    g.setGradientFill(pointerGrad);
     g.drawLine({ centre, pointerEnd }, 2.0f);
 }
 
@@ -195,6 +241,6 @@ void DecimuLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& 
     g.fillEllipse(dotArea);
 
     g.setColour(bypassed ? DecimuColours::textMuted : DecimuColours::text);
-    g.setFont(makeFont(vt323, 18.0f));
+    g.setFont(monoFont(18.0f));
     g.drawText(bypassed ? "BYPASS" : "REC", bounds.reduced(4.0f, 0.0f), juce::Justification::centredLeft);
 }

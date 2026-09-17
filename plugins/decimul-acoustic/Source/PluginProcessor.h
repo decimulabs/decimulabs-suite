@@ -25,6 +25,7 @@ namespace ParamIDs
     static const juce::String spaceBPreDelaySync = "spaceBPreDelaySync";
     static const juce::String echoMix            = "echoMix";
     static const juce::String echoDivision       = "echoDivision";
+    static const juce::String echoFeedback       = "echoFeedback";
     static const juce::String blend              = "blend";
     static const juce::String outputTrim         = "outputTrim";
     static const juce::String bypass             = "bypass";
@@ -54,7 +55,8 @@ namespace ParamIDs
     - `spaceAPreDelay` / `spaceBPreDelay` (ms libres) ya afectan el audio (delay real
       antes de cada reverb). Los toggles `...Sync` y `compOversample` siguen sin
       efecto — quedan para la integración con Airwindows.
-    - El feedback del Echo es una constante interna (0.35), todavía no es un parámetro.
+    - El feedback del Echo ahora es un parámetro real (`echoFeedback`, 0-100%, default
+      35% — antes era una constante interna fija).
 */
 class DecimulAcousticProcessor : public juce::AudioProcessor
 {

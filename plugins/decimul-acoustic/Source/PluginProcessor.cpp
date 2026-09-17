@@ -9,8 +9,6 @@ namespace
     // parámetro). Arrancamos todos en 1; el día que se modifique alguno "en el lugar"
     // en vez de agregar uno nuevo, ese parámetro sube su versionHint.
     juce::ParameterID pid(const juce::String& id) { return { id, 1 }; }
-
-    constexpr float echoFeedback = 0.35f; // ver nota de "limitaciones conocidas" en el .h
 }
 
 DecimulAcousticProcessor::DecimulAcousticProcessor()
@@ -87,6 +85,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
         pid(ParamIDs::echoMix), "Echo", pctRange, 0.0f, pctAttr));
     params.push_back(std::make_unique<AudioParameterChoice>(
         pid(ParamIDs::echoDivision), "Echo Division", StringArray { "Slap", "8th", "Quarter" }, 0));
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::echoFeedback), "Echo Feedback", pctRange, 35.0f, pctAttr));
 
     // --- Blend / Output ---
     params.push_back(std::make_unique<AudioParameterFloat>(
@@ -363,6 +363,7 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         if (mix > 0.0001f)
         {
             const int division = (int) apvts.getRawParameterValue(ParamIDs::echoDivision)->load();
+            const float feedback = apvts.getRawParameterValue(ParamIDs::echoFeedback)->load() / 100.0f;
             const double bpm = getCurrentBpm();
             const float delayMs = computeEchoDelayMs(division, bpm);
             const float delaySamples = juce::jlimit(1.0f, (float) delayLine.getMaximumDelayInSamples(),
@@ -377,7 +378,7 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
                 for (int i = 0; i < numSamples; ++i)
                 {
                     const float delayed = delayLine.popSample(ch);
-                    delayLine.pushSample(ch, dry[i] + delayed * echoFeedback);
+                    delayLine.pushSample(ch, dry[i] + delayed * feedback);
                     out[i] += delayed * mix;
                 }
             }

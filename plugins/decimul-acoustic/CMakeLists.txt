@@ -13,6 +13,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(JUCE)
 
+# "Look" compartido de toda la suite (LookAndFeel, knobs/faders/compartimentos,
+# selectores tipo LED, meters, VU en arco, assets de marca) — ver shared/CMakeLists.txt.
+# Se agrega DESPUÉS de FetchContent_MakeAvailable(JUCE): shared/CMakeLists.txt asume
+# que juce_add_binary_data() ya está definido.
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../shared ${CMAKE_CURRENT_BINARY_DIR}/decimu-shared)
+
 juce_add_plugin(DecimulAcoustic
     COMPANY_NAME "decimulabs"
     COMPANY_WEBSITE "https://www.decimulabs.com"
@@ -32,20 +38,7 @@ juce_add_plugin(DecimulAcoustic
 target_sources(DecimulAcoustic PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
-    Source/DecimuLookAndFeel.cpp
 )
-
-# Assets de marca (logo + tipografías OFL), ver Assets/README.md. Quedan compilados
-# adentro del binario del plugin, no se cargan desde ningún lado en runtime.
-juce_add_binary_data(DecimulAcousticAssets SOURCES
-    Assets/wordmark.png
-    Assets/dog.png
-    Assets/studio-bg.jpg
-    Assets/ChakraPetch-Regular.ttf
-    Assets/ChakraPetch-Bold.ttf
-    Assets/VT323-Regular.ttf
-)
-set_target_properties(DecimulAcousticAssets PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 # Sin esto, MSVC reinterpreta los literales de string no-ASCII del código fuente con
 # el codepage ANSI local en vez de UTF-8, y corrompe cualquier caracter especial (por
@@ -63,7 +56,7 @@ target_link_libraries(DecimulAcoustic PRIVATE
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_gui_extra
-    DecimulAcousticAssets
+    decimu_shared_ui
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags
