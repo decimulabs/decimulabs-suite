@@ -65,13 +65,24 @@
   .screw.bl { bottom: 12px; left: 12px; }
   .screw.br { bottom: 12px; right: 12px; }
 
+  .handle {
+    position: absolute; top: 10px; bottom: 10px; width: 16px;
+    background: repeating-linear-gradient(180deg, #0a0b10 0px, #0a0b10 3px, #1c1f2b 3px, #1c1f2b 6px);
+    border: 1px solid #05060a; border-radius: 5px;
+  }
+  .handle.left { left: -8px; } .handle.right { right: -8px; }
+
   .topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 14px 14px;
-    border-bottom: 1px solid var(--chassis-edge);
+    padding: 10px 18px;
     margin-bottom: 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--chassis-edge);
+    border-top-color: rgba(255,255,255,0.07);
+    border-radius: 8px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
   }
   .brand { display: flex; align-items: center; gap: 10px; }
   .brand img.dog { height: 30px; width: auto; opacity: 0.92; }
@@ -116,27 +127,40 @@
   .module {
     background: rgba(255,255,255,0.015);
     border: 1px solid var(--chassis-edge);
+    border-top-color: rgba(255,255,255,0.06);
     border-radius: 8px;
     padding: 10px 8px 12px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), inset 0 -8px 14px -12px rgba(0,0,0,0.7);
   }
-  .module.space { background: var(--panel-tint-space); border-color: rgba(61,123,255,0.25); }
+  .module.space { background: var(--panel-tint-space); border-color: rgba(61,123,255,0.28); }
   .module.side { padding-top: 12px; }
 
+  .knob-wrap { position: relative; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; }
+  .knob-ticks {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: repeating-conic-gradient(var(--text-dim) 0deg 1.5deg, transparent 1.5deg 15deg);
+    -webkit-mask: radial-gradient(circle, transparent 66%, black 67%, black 100%);
+            mask: radial-gradient(circle, transparent 66%, black 67%, black 100%);
+    opacity: 0.7;
+  }
+  .knob-led {
+    width: 7px; height: 7px; border-radius: 2px; margin-bottom: 3px;
+    background: var(--accent-cyan); box-shadow: 0 0 5px var(--accent-cyan);
+  }
   .knob {
-    width: 42px; height: 42px; border-radius: 50%;
+    width: 40px; height: 40px; border-radius: 50%;
     background: radial-gradient(circle at 32% 28%, #33384a, #14161f 72%);
     border: 1px solid var(--chassis-edge);
     position: relative;
-    margin-bottom: 2px;
   }
   .knob::before {
     content: "";
     position: absolute; top: 4px; left: 50%;
-    width: 2px; height: 14px;
+    width: 2px; height: 13px;
     background: var(--accent-cyan);
     transform-origin: bottom center;
     transform: translateX(-50%) rotate(-35deg);
@@ -219,6 +243,7 @@
 
 <div class="unit" role="img" aria-label="Mockup del panel del plugin DecimuLabs Acoustic">
   <span class="screw tl"></span><span class="screw tr"></span><span class="screw bl"></span><span class="screw br"></span>
+  <span class="handle left"></span><span class="handle right"></span>
 
   <div class="topbar">
     <div class="brand">
@@ -245,7 +270,7 @@
   </div>
 
   <div class="rack">
-    <div class="module side">
+    <div class="module side space">
       <div class="module-label">[ INPUT ]</div>
       <div class="side-row">
         <div class="meter-ladder" id="meterInput"></div>
@@ -298,7 +323,8 @@
       </div>
 
       <div class="module space">
-        <div class="knob"></div>
+        <div class="knob-led"></div>
+        <div class="knob-wrap"><div class="knob-ticks"></div><div class="knob"></div></div>
         <div class="knob-label">PRE-DELAY</div>
         <div class="module-label">[ SPACE A ]</div>
         <div class="ledstack">
@@ -313,7 +339,8 @@
       </div>
 
       <div class="module space">
-        <div class="knob" style="transform: rotate(20deg);"></div>
+        <div class="knob-led"></div>
+        <div class="knob-wrap"><div class="knob-ticks"></div><div class="knob" style="transform: rotate(20deg);"></div></div>
         <div class="knob-label">PRE-DELAY</div>
         <div class="module-label">[ SPACE B ]</div>
         <div class="ledstack">
@@ -350,7 +377,7 @@
       </div>
     </div>
 
-    <div class="module side">
+    <div class="module side space">
       <div class="module-label">[ OUTPUT ]</div>
       <div class="side-row">
         <div class="meter-ladder" id="meterOutput"></div>
