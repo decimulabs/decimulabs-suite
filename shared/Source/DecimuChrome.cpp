@@ -78,14 +78,14 @@ void paintRackHandles(juce::Graphics& g, juce::Rectangle<float> bounds)
 
 void paintCompartment(juce::Graphics& g, juce::Rectangle<float> bounds, bool tinted, float cornerRadius)
 {
-    g.setColour(tinted ? DecimuColours::accentBlue.withAlpha(0.10f)
+    g.setColour(tinted ? DecimuColours::accentSecondary.withAlpha(0.10f)
                         : juce::Colours::white.withAlpha(0.015f));
     g.fillRoundedRectangle(bounds, cornerRadius);
 
     g.setColour(juce::Colours::black.withAlpha(0.35f));
     g.drawRoundedRectangle(bounds.reduced(0.5f).translated(0, 1.0f), cornerRadius, 2.0f);
 
-    g.setColour(tinted ? DecimuColours::accentBlue.withAlpha(0.3f)
+    g.setColour(tinted ? DecimuColours::accentSecondary.withAlpha(0.3f)
                         : juce::Colour(0xff2a2e3d));
     g.drawRoundedRectangle(bounds.reduced(0.5f), cornerRadius, 1.0f);
 

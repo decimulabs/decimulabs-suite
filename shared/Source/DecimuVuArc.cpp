@@ -30,7 +30,7 @@ void DecimuVuArc::paint(juce::Graphics& g)
     const float splitAngle = startAngle + (endAngle - startAngle) * 0.7f;
     cyanArc.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, startAngle, splitAngle, true);
     redArc.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, splitAngle, endAngle, true);
-    g.setColour(DecimuColours::accentCyan);
+    g.setColour(DecimuColours::accentPrimary);
     g.strokePath(cyanArc, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     g.setColour(DecimuColours::accentRec);
     g.strokePath(redArc, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));

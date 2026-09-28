@@ -19,7 +19,7 @@ void DecimuLadderMeter::paint(juce::Graphics& g)
         auto segRect = juce::Rectangle<int>(bounds.getX(),
                                              bounds.getBottom() - (i + 1) * (segHeight + segGap) + segGap,
                                              bounds.getWidth(), segHeight);
-        juce::Colour c = DecimuColours::accentCyan;
+        juce::Colour c = DecimuColours::accentPrimary;
         if (i >= numSegments - 2)      c = DecimuColours::accentRec;   // últimos 2: zona de clip
         else if (i >= numSegments - 5) c = juce::Colours::yellow;      // siguientes 3
 

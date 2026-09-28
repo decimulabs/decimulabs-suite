@@ -13,8 +13,12 @@ namespace
     }
 }
 
-DecimuLookAndFeel::DecimuLookAndFeel()
+DecimuLookAndFeel::DecimuLookAndFeel(const DecimuAccentTheme& theme)
 {
+    DecimuColours::accentPrimary = theme.primary;
+    DecimuColours::accentSecondary = theme.secondary;
+    DecimuColours::accentSecondarySoft = theme.secondarySoft;
+
     chakraRegular = juce::Typeface::createSystemTypefaceFor(
         BinaryData::ChakraPetchRegular_ttf, (size_t) BinaryData::ChakraPetchRegular_ttfSize);
     chakraBold = juce::Typeface::createSystemTypefaceFor(
@@ -29,7 +33,7 @@ DecimuLookAndFeel::DecimuLookAndFeel()
     setColour(juce::ComboBox::outlineColourId, DecimuColours::textMuted);
     setColour(juce::PopupMenu::backgroundColourId, DecimuColours::panel);
     setColour(juce::PopupMenu::textColourId, DecimuColours::text);
-    setColour(juce::PopupMenu::highlightedBackgroundColourId, DecimuColours::accentBlue);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId, DecimuColours::accentSecondary);
     setColour(juce::Slider::textBoxTextColourId, DecimuColours::text);
     setColour(juce::Slider::textBoxBackgroundColourId, DecimuColours::panel);
     setColour(juce::Slider::textBoxOutlineColourId, DecimuColours::textMuted);
@@ -82,8 +86,8 @@ void DecimuLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
     const float fillTop = juce::jlimit(topY, bottomY, sliderPos);
     auto fill = track.withTop(fillTop).withBottom(bottomY);
 
-    juce::ColourGradient grad(DecimuColours::accentBlue, track.getX(), bottomY,
-                               DecimuColours::accentCyan, track.getX(), topY, false);
+    juce::ColourGradient grad(DecimuColours::accentSecondary, track.getX(), bottomY,
+                               DecimuColours::accentPrimary, track.getX(), topY, false);
     g.setGradientFill(grad);
     g.fillRect(fill);
 
@@ -109,7 +113,7 @@ void DecimuLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
 
     const bool active = slider.isMouseOverOrDragging();
     juce::ColourGradient thumbGrad(juce::Colours::white, thumb.getX(), thumb.getY(),
-                                    active ? DecimuColours::accentBlueSoft : juce::Colour(0xff5a6280),
+                                    active ? DecimuColours::accentSecondarySoft : juce::Colour(0xff5a6280),
                                     thumb.getX(), thumb.getBottom(), false);
     thumbGrad.addColour(0.18, juce::Colour(0xffd7dce6));
     thumbGrad.addColour(0.46, juce::Colour(0xff98a3ba));
@@ -147,8 +151,8 @@ void DecimuLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int wi
     // Arco de valor (desde el mínimo hasta la posición actual), degradé azul->cian.
     juce::Path valueArc;
     valueArc.addCentredArc(centre.x, centre.y, radius * 0.78f, radius * 0.78f, 0.0f, rotaryStartAngle, angle, true);
-    juce::ColourGradient arcGrad(DecimuColours::accentBlue, centre.x - radius, centre.y,
-                                  DecimuColours::accentCyan, centre.x + radius, centre.y, false);
+    juce::ColourGradient arcGrad(DecimuColours::accentSecondary, centre.x - radius, centre.y,
+                                  DecimuColours::accentPrimary, centre.x + radius, centre.y, false);
     g.setGradientFill(arcGrad);
     g.strokePath(valueArc, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
@@ -180,10 +184,10 @@ void DecimuLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int wi
     // Puntero con leve resplandor.
     juce::Point<float> pointerEnd(centre.x + radius * 0.6f * std::sin(angle),
                                    centre.y - radius * 0.6f * std::cos(angle));
-    g.setColour(DecimuColours::accentCyan.withAlpha(0.4f));
+    g.setColour(DecimuColours::accentPrimary.withAlpha(0.4f));
     g.drawLine({ centre, pointerEnd }, 4.0f);
-    juce::ColourGradient pointerGrad(DecimuColours::accentCyan, centre.x, centre.y,
-                                      DecimuColours::accentBlueSoft, pointerEnd.x, pointerEnd.y, false);
+    juce::ColourGradient pointerGrad(DecimuColours::accentPrimary, centre.x, centre.y,
+                                      DecimuColours::accentSecondarySoft, pointerEnd.x, pointerEnd.y, false);
     g.setGradientFill(pointerGrad);
     g.drawLine({ centre, pointerEnd }, 2.0f);
 }
@@ -195,14 +199,14 @@ void DecimuLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, b
 
     g.setColour(DecimuColours::panel);
     g.fillRect(bounds);
-    g.setColour(box.isMouseOver() ? DecimuColours::accentBlueSoft : DecimuColours::textMuted);
+    g.setColour(box.isMouseOver() ? DecimuColours::accentSecondarySoft : DecimuColours::textMuted);
     g.drawRect(bounds, 1.0f);
 
     auto arrowZone = bounds.removeFromRight(18.0f);
     auto c = arrowZone.getCentre();
     juce::Path arrow;
     arrow.addTriangle(c.x - 4.0f, c.y - 3.0f, c.x + 4.0f, c.y - 3.0f, c.x, c.y + 4.0f);
-    g.setColour(DecimuColours::accentCyan);
+    g.setColour(DecimuColours::accentPrimary);
     g.fillPath(arrow);
 }
 
@@ -210,7 +214,7 @@ void DecimuLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bu
                                               const juce::Colour&, bool isMouseOverButton, bool isButtonDown)
 {
     auto bounds = button.getLocalBounds().toFloat();
-    auto colour = isButtonDown ? DecimuColours::accentBlue
+    auto colour = isButtonDown ? DecimuColours::accentSecondary
                 : isMouseOverButton ? DecimuColours::panel.brighter(0.2f)
                 : DecimuColours::panel;
     g.setColour(colour);

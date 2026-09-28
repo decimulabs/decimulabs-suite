@@ -33,5 +33,5 @@ namespace DecimuChrome
     void paintCompartment(juce::Graphics&, juce::Rectangle<float> bounds, bool tinted = false, float cornerRadius = 8.0f);
 
     // LED cuadrado con brillo especular, para poner arriba de un knob o selector.
-    void paintLed(juce::Graphics&, juce::Rectangle<float> bounds, juce::Colour colour = DecimuColours::accentCyan);
+    void paintLed(juce::Graphics&, juce::Rectangle<float> bounds, juce::Colour colour = DecimuColours::accentPrimary);
 }

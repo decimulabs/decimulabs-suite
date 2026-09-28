@@ -1,0 +1,480 @@
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+#include <cmath>
+
+namespace
+{
+    juce::ParameterID pid(const juce::String& id) { return { id, 1 }; }
+}
+
+DecimulGuitarsProcessor::DecimulGuitarsProcessor()
+    : AudioProcessor(BusesProperties()
+                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
+                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      apvts(*this, nullptr, "PARAMETERS", createParameterLayout())
+{
+}
+
+DecimulGuitarsProcessor::~DecimulGuitarsProcessor() = default;
+
+juce::AudioProcessorValueTreeState::ParameterLayout DecimulGuitarsProcessor::createParameterLayout()
+{
+    using namespace juce;
+    std::vector<std::unique_ptr<RangedAudioParameter>> params;
+
+    auto dbRange = [](float lo, float hi) { return NormalisableRange<float>(lo, hi, 0.1f); };
+    auto pctRange = NormalisableRange<float>(0.0f, 100.0f, 0.1f);
+    auto dbAttr = AudioParameterFloatAttributes().withLabel("dB");
+    auto pctAttr = AudioParameterFloatAttributes().withLabel("%");
+
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::inputTrim), "Input", dbRange(-24.0f, 24.0f), 0.0f, dbAttr));
+
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::gateAmount), "Gate", pctRange, 0.0f, pctAttr));
+    params.push_back(std::make_unique<AudioParameterChoice>(
+        pid(ParamIDs::gateMode), "Gate Character", StringArray { "Fast", "Med", "Slow" }, 0));
+
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::driveAmount), "Drive", pctRange, 0.0f, pctAttr));
+    params.push_back(std::make_unique<AudioParameterChoice>(
+        pid(ParamIDs::driveMode), "Drive Character", StringArray { "Tube", "Fuzz", "Boost" }, 0));
+
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::toneTilt), "Tone", dbRange(-12.0f, 12.0f), 0.0f, dbAttr));
+    params.push_back(std::make_unique<AudioParameterChoice>(
+        pid(ParamIDs::toneMode), "Tone Character", StringArray { "Scoop", "Flat", "Bright" }, 1));
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::toneMidFreq), "Mid Sweep", NormalisableRange<float>(300.0f, 3000.0f, 1.0f, 0.4f), 800.0f,
+        AudioParameterFloatAttributes().withLabel("Hz")));
+
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::cabAmount), "Cab", pctRange, 0.0f, pctAttr));
+    params.push_back(std::make_unique<AudioParameterChoice>(
+        pid(ParamIDs::cabMode), "Cab Character", StringArray { "Combo", "Stack", "DI" }, 0));
+
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::modAmount), "Modulation", pctRange, 0.0f, pctAttr));
+    params.push_back(std::make_unique<AudioParameterChoice>(
+        pid(ParamIDs::modMode), "Modulation Character", StringArray { "Chorus", "Flanger", "Phaser" }, 0));
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::modRate), "Mod Rate", NormalisableRange<float>(0.1f, 5.0f, 0.01f, 0.5f), 0.8f,
+        AudioParameterFloatAttributes().withLabel("Hz")));
+
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::spaceAmount), "Space", pctRange, 0.0f, pctAttr));
+    params.push_back(std::make_unique<AudioParameterChoice>(
+        pid(ParamIDs::spaceMode), "Space Character", StringArray { "Room", "Plate", "Hall" }, 0));
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::spacePreDelay), "Space Pre-Delay", dbRange(0.0f, 500.0f), 0.0f,
+        AudioParameterFloatAttributes().withLabel("ms")));
+
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::echoAmount), "Echo", pctRange, 0.0f, pctAttr));
+    params.push_back(std::make_unique<AudioParameterChoice>(
+        pid(ParamIDs::echoDivision), "Echo Division", StringArray { "Slap", "8th", "Quarter" }, 0));
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::echoFeedback), "Echo Feedback", pctRange, 35.0f, pctAttr));
+
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::blend), "Blend", pctRange, 100.0f, pctAttr));
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::outputTrim), "Output", dbRange(-24.0f, 24.0f), 0.0f, dbAttr));
+
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::bypass), "Bypass", false));
+
+    return { params.begin(), params.end() };
+}
+
+void DecimulGuitarsProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+{
+    currentSampleRate = sampleRate;
+
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = sampleRate;
+    spec.maximumBlockSize = (juce::uint32) samplesPerBlock;
+    spec.numChannels = (juce::uint32) juce::jmax(1, getTotalNumOutputChannels());
+
+    inputGain.prepare(spec);
+    outputGain.prepare(spec);
+    inputGain.setRampDurationSeconds(0.02);
+    outputGain.setRampDurationSeconds(0.02);
+
+    gate.prepare(spec);
+    waveShaper.prepare(spec);
+
+    toneLowShelf.prepare(spec);
+    toneHighShelf.prepare(spec);
+    toneMidPeak.prepare(spec);
+    cabLowCut.prepare(spec);
+    cabHighCut.prepare(spec);
+    cabPresence.prepare(spec);
+
+    chorusFlanger.prepare(spec);
+    phaser.prepare(spec);
+    space.prepare(spec);
+    space.reset();
+
+    spacePreDelayLine.setMaximumDelayInSamples((int) (0.6 * sampleRate));
+    spacePreDelayLine.prepare(spec);
+    spacePreDelayLine.reset();
+
+    delayLine.setMaximumDelayInSamples((int) (2.0 * sampleRate));
+    delayLine.prepare(spec);
+    delayLine.reset();
+
+    dryBuffer.setSize((int) spec.numChannels, samplesPerBlock);
+    scratchBuffer.setSize((int) spec.numChannels, samplesPerBlock);
+    returnScratch.setSize((int) spec.numChannels, samplesPerBlock);
+}
+
+void DecimulGuitarsProcessor::releaseResources()
+{
+}
+
+bool DecimulGuitarsProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+{
+    const auto mainOut = layouts.getMainOutputChannelSet();
+    const auto mainIn = layouts.getMainInputChannelSet();
+
+    if (mainOut != juce::AudioChannelSet::stereo())
+        return false;
+
+    // Acepta mono (DI/mic de amp) o stereo de entrada.
+    return mainIn == juce::AudioChannelSet::stereo() || mainIn == juce::AudioChannelSet::mono();
+}
+
+double DecimulGuitarsProcessor::getCurrentBpm() const
+{
+    if (auto* ph = getPlayHead())
+    {
+        if (auto position = ph->getPosition(); position.hasValue())
+        {
+            if (auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 1.0)
+                return *bpm;
+        }
+    }
+    return (double) manualBpm.load();
+}
+
+float DecimulGuitarsProcessor::computeEchoDelayMs(int divisionIndex, double bpm) const
+{
+    switch (divisionIndex)
+    {
+        case 0: return 120.0f;
+        case 1: return (float) (60000.0 / bpm / 2.0);
+        case 2: return (float) (60000.0 / bpm);
+        default: return 120.0f;
+    }
+}
+
+void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    juce::ScopedNoDenormals noDenormals;
+    const int numSamples = buffer.getNumSamples();
+    const int numChannels = buffer.getNumChannels();
+
+    const bool bypassed = apvts.getRawParameterValue(ParamIDs::bypass)->load() > 0.5f;
+
+    if (getMainBusNumInputChannels() == 1 && numChannels > 1)
+        buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+
+    if (bypassed)
+    {
+        inputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
+        outputPeakDb.store(inputPeakDb.load());
+        return;
+    }
+
+    if (dryBuffer.getNumSamples() < numSamples || dryBuffer.getNumChannels() != numChannels)
+    {
+        dryBuffer.setSize(numChannels, numSamples, false, false, true);
+        scratchBuffer.setSize(numChannels, numSamples, false, false, true);
+        returnScratch.setSize(numChannels, numSamples, false, false, true);
+    }
+
+    // --- Input Trim ---
+    {
+        juce::dsp::AudioBlock<float> block(buffer);
+        juce::dsp::ProcessContextReplacing<float> context(block);
+        inputGain.setGainDecibels(apvts.getRawParameterValue(ParamIDs::inputTrim)->load());
+        inputGain.process(context);
+    }
+    inputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
+
+    // Dry tap: post Input Trim, pre "core" (Gate->Drive->Tone->Cab).
+    for (int ch = 0; ch < numChannels; ++ch)
+        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+    // --- Gate ---
+    {
+        const float amount = apvts.getRawParameterValue(ParamIDs::gateAmount)->load() / 100.0f;
+        const int mode = (int) apvts.getRawParameterValue(ParamIDs::gateMode)->load();
+
+        const float thresholdDb = juce::jmap(amount, 0.0f, 1.0f, -80.0f, -20.0f);
+        float attackMs = 1.0f, releaseMs = 50.0f;
+        if (mode == 1) { attackMs = 5.0f;  releaseMs = 150.0f; }
+        if (mode == 2) { attackMs = 10.0f; releaseMs = 300.0f; }
+
+        gate.setThreshold(thresholdDb);
+        gate.setRatio(10.0f);
+        gate.setAttack(attackMs);
+        gate.setRelease(releaseMs);
+
+        const float preMag = buffer.getMagnitude(0, numSamples);
+        juce::dsp::AudioBlock<float> block(buffer);
+        juce::dsp::ProcessContextReplacing<float> context(block);
+        gate.process(context);
+        const float postMag = buffer.getMagnitude(0, numSamples);
+        gainReductionDb.store(juce::jmax(0.0f, juce::Decibels::gainToDecibels(preMag)
+                                             - juce::Decibels::gainToDecibels(postMag)));
+    }
+
+    // --- Drive ---
+    {
+        const float amount = apvts.getRawParameterValue(ParamIDs::driveAmount)->load() / 100.0f;
+        if (amount > 0.001f)
+        {
+            const int mode = (int) apvts.getRawParameterValue(ParamIDs::driveMode)->load();
+            const float preGain = 1.0f + amount * 14.0f;
+
+            if (mode == 0)      waveShaper.functionToUse = [](float x) { return std::tanh(x); };
+            else if (mode == 1) waveShaper.functionToUse = [](float x)
+                                 { return x >= 0.0f ? 1.0f - std::exp(-x) : -1.0f + std::exp(x); };
+            else                waveShaper.functionToUse = [](float x) { return std::tanh(x * 0.35f); };
+
+            buffer.applyGain(preGain);
+            juce::dsp::AudioBlock<float> block(buffer);
+            juce::dsp::ProcessContextReplacing<float> context(block);
+            waveShaper.process(context);
+            buffer.applyGain(1.0f / std::sqrt(preGain));
+        }
+    }
+
+    // --- Tone: tilt EQ + mid-sweep peak fijo ---
+    {
+        const float tiltDb = apvts.getRawParameterValue(ParamIDs::toneTilt)->load();
+        const int mode = (int) apvts.getRawParameterValue(ParamIDs::toneMode)->load();
+        const float lowFreq = mode == 0 ? 250.0f : (mode == 1 ? 400.0f : 500.0f);
+        const float highFreq = mode == 0 ? 3000.0f : (mode == 1 ? 2000.0f : 1500.0f);
+        const float midFreq = apvts.getRawParameterValue(ParamIDs::toneMidFreq)->load();
+
+        *toneLowShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(
+            currentSampleRate, lowFreq, 0.7071f, juce::Decibels::decibelsToGain(-tiltDb * 0.5f));
+        *toneHighShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(
+            currentSampleRate, highFreq, 0.7071f, juce::Decibels::decibelsToGain(tiltDb * 0.5f));
+        *toneMidPeak.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(
+            currentSampleRate, midFreq, 1.0f, juce::Decibels::decibelsToGain(4.0f));
+
+        juce::dsp::AudioBlock<float> block(buffer);
+        juce::dsp::ProcessContextReplacing<float> context(block);
+        toneLowShelf.process(context);
+        toneHighShelf.process(context);
+        toneMidPeak.process(context);
+    }
+
+    // --- Cab: aproximación con EQ fija, NO es un cab-sim con impulse response ---
+    {
+        const float mix = apvts.getRawParameterValue(ParamIDs::cabAmount)->load() / 100.0f;
+        const int mode = (int) apvts.getRawParameterValue(ParamIDs::cabMode)->load();
+
+        if (mode != 2 && mix > 0.001f) // DI = sin coloración de cab
+        {
+            const float lowCutFreq = mode == 0 ? 120.0f : 90.0f;
+            const float highCutFreq = mode == 0 ? 6500.0f : 5500.0f;
+            const float presenceFreq = mode == 0 ? 3000.0f : 2500.0f;
+            const float presenceGainDb = mode == 0 ? 2.0f : 3.0f;
+
+            *cabLowCut.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate, lowCutFreq);
+            *cabHighCut.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate, highCutFreq);
+            *cabPresence.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(
+                currentSampleRate, presenceFreq, 1.0f, juce::Decibels::decibelsToGain(presenceGainDb));
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                returnScratch.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+            juce::dsp::AudioBlock<float> block(returnScratch);
+            auto subBlock = block.getSubBlock(0, (size_t) numSamples);
+            juce::dsp::ProcessContextReplacing<float> context(subBlock);
+            cabLowCut.process(context);
+            cabHighCut.process(context);
+            cabPresence.process(context);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto* out = buffer.getWritePointer(ch);
+                auto* wet = returnScratch.getReadPointer(ch);
+                for (int i = 0; i < numSamples; ++i)
+                    out[i] = out[i] * (1.0f - mix) + wet[i] * mix;
+            }
+        }
+    }
+
+    // A partir de acá, `buffer` es el "core" (Gate->Drive->Tone->Cab aplicados).
+    for (int ch = 0; ch < numChannels; ++ch)
+        scratchBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+    // --- Space (un solo reverb, con pre-delay real) ---
+    {
+        const float mix = apvts.getRawParameterValue(ParamIDs::spaceAmount)->load() / 100.0f;
+        if (mix > 0.0001f)
+        {
+            const int type = (int) apvts.getRawParameterValue(ParamIDs::spaceMode)->load();
+            juce::dsp::Reverb::Parameters p;
+            if (type == 0)      { p.roomSize = 0.35f; p.damping = 0.5f; } // Room
+            else if (type == 1) { p.roomSize = 0.5f;  p.damping = 0.25f; p.width = 0.6f; } // Plate (más angosto)
+            else                { p.roomSize = 0.85f; p.damping = 0.3f; } // Hall
+            if (type != 1) p.width = 1.0f;
+            p.wetLevel = mix;
+            p.dryLevel = 0.0f;
+            space.setParameters(p);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                returnScratch.copyFrom(ch, 0, scratchBuffer, ch, 0, numSamples);
+
+            juce::dsp::AudioBlock<float> block(returnScratch);
+            auto subBlock = block.getSubBlock(0, (size_t) numSamples);
+            juce::dsp::ProcessContextReplacing<float> context(subBlock);
+
+            const float preDelayMs = apvts.getRawParameterValue(ParamIDs::spacePreDelay)->load();
+            if (preDelayMs > 0.01f)
+            {
+                spacePreDelayLine.setDelay(juce::jmin((float) spacePreDelayLine.getMaximumDelayInSamples(),
+                                                       preDelayMs * 0.001f * (float) currentSampleRate));
+                spacePreDelayLine.process(context);
+            }
+            space.process(context);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                buffer.addFrom(ch, 0, returnScratch, ch, 0, numSamples);
+        }
+    }
+
+    // --- Modulation: Chorus/Flanger (misma clase, distintos parámetros) o Phaser ---
+    {
+        const float mix = apvts.getRawParameterValue(ParamIDs::modAmount)->load() / 100.0f;
+        if (mix > 0.0001f)
+        {
+            const int mode = (int) apvts.getRawParameterValue(ParamIDs::modMode)->load();
+            const float rateHz = apvts.getRawParameterValue(ParamIDs::modRate)->load();
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                returnScratch.copyFrom(ch, 0, scratchBuffer, ch, 0, numSamples);
+
+            juce::dsp::AudioBlock<float> block(returnScratch);
+            auto subBlock = block.getSubBlock(0, (size_t) numSamples);
+            juce::dsp::ProcessContextReplacing<float> context(subBlock);
+
+            if (mode == 2)
+            {
+                phaser.setRate(rateHz);
+                phaser.setDepth(0.7f);
+                phaser.setCentreFrequency(800.0f);
+                phaser.setFeedback(0.3f);
+                phaser.setMix(1.0f);
+                phaser.process(context);
+            }
+            else
+            {
+                chorusFlanger.setRate(rateHz);
+                if (mode == 0) { chorusFlanger.setCentreDelay(7.5f); chorusFlanger.setFeedback(0.0f); chorusFlanger.setDepth(0.25f); }
+                else           { chorusFlanger.setCentreDelay(2.0f); chorusFlanger.setFeedback(0.5f); chorusFlanger.setDepth(0.4f); }
+                chorusFlanger.setMix(1.0f);
+                chorusFlanger.process(context);
+            }
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                buffer.addFrom(ch, 0, returnScratch, ch, 0, numSamples, mix);
+        }
+    }
+
+    // --- Echo: delay con feedback, tempo-synced — mismo código que Acoustic ---
+    {
+        const float mix = apvts.getRawParameterValue(ParamIDs::echoAmount)->load() / 100.0f;
+        if (mix > 0.0001f)
+        {
+            const int division = (int) apvts.getRawParameterValue(ParamIDs::echoDivision)->load();
+            const float feedback = apvts.getRawParameterValue(ParamIDs::echoFeedback)->load() / 100.0f;
+            const double bpm = getCurrentBpm();
+            const float delayMs = computeEchoDelayMs(division, bpm);
+            const float delaySamples = juce::jlimit(1.0f, (float) delayLine.getMaximumDelayInSamples(),
+                                                      delayMs * 0.001f * (float) currentSampleRate);
+            delayLine.setDelay(delaySamples);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto* dry = scratchBuffer.getReadPointer(ch);
+                auto* out = buffer.getWritePointer(ch);
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const float delayed = delayLine.popSample(ch);
+                    delayLine.pushSample(ch, dry[i] + delayed * feedback);
+                    out[i] += delayed * mix;
+                }
+            }
+        }
+    }
+
+    // --- Blend (dry/wet) ---
+    {
+        const float wetAmount = apvts.getRawParameterValue(ParamIDs::blend)->load() / 100.0f;
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto* wet = buffer.getWritePointer(ch);
+            auto* dry = dryBuffer.getReadPointer(ch);
+            for (int i = 0; i < numSamples; ++i)
+                wet[i] = dry[i] * (1.0f - wetAmount) + wet[i] * wetAmount;
+        }
+    }
+
+    // --- Output Trim ---
+    {
+        juce::dsp::AudioBlock<float> block(buffer);
+        juce::dsp::ProcessContextReplacing<float> context(block);
+        outputGain.setGainDecibels(apvts.getRawParameterValue(ParamIDs::outputTrim)->load());
+        outputGain.process(context);
+    }
+
+    outputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
+}
+
+juce::AudioProcessorEditor* DecimulGuitarsProcessor::createEditor()
+{
+    return new DecimulGuitarsEditor(*this);
+}
+
+void DecimulGuitarsProcessor::tapTempo()
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    const double delta = now - lastTapTimeMs;
+    if (delta >= 200.0 && delta <= 2000.0)
+        manualBpm.store((float) (60000.0 / delta));
+    lastTapTimeMs = now;
+}
+
+void DecimulGuitarsProcessor::getStateInformation(juce::MemoryBlock& destData)
+{
+    if (auto state = apvts.copyState(); state.isValid())
+    {
+        if (auto xml = state.createXml())
+        {
+            xml->setAttribute("manualBpm", (double) manualBpm.load());
+            copyXmlToBinary(*xml, destData);
+        }
+    }
+}
+
+void DecimulGuitarsProcessor::setStateInformation(const void* data, int sizeInBytes)
+{
+    if (auto xml = getXmlFromBinary(data, sizeInBytes))
+    {
+        manualBpm.store((float) xml->getDoubleAttribute("manualBpm", 120.0));
+        apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    }
+}
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new DecimulGuitarsProcessor();
+}

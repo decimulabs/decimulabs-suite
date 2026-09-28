@@ -28,7 +28,7 @@ void DecimuLedStackSelector::paint(juce::Graphics& g)
         const bool isSel = (i == selected);
 
         auto dotArea = row.removeFromLeft(rowH).toFloat().reduced((float) rowH * 0.3f);
-        g.setColour(isSel ? DecimuColours::accentCyan : DecimuColours::textMuted.withAlpha(0.4f));
+        g.setColour(isSel ? DecimuColours::accentPrimary : DecimuColours::textMuted.withAlpha(0.4f));
         g.fillEllipse(dotArea);
 
         g.setColour(isSel ? DecimuColours::text : DecimuColours::textMuted);
