@@ -92,8 +92,22 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     addAndMakeVisible(tapTempoButton);
     tapTempoButton.onClick = [this] { processorRef.tapTempo(); };
 
+    // BPM editable: doble click para escribir a mano (alternativa al TAP, pedido en
+    // testing — "no solo el tap"). Mismo alcance que TAP: fallback sin host.
     bpmLabel.setJustificationType(juce::Justification::centred);
     bpmLabel.setColour(juce::Label::textColourId, DecimuColours::textMuted);
+    bpmLabel.setEditable(false, true, false);
+    bpmLabel.setTooltip("Tempo manual (fallback sin host): doble click para escribirlo, o TAP");
+    bpmLabel.onEditorShow = [this]
+    {
+        if (auto* ed = bpmLabel.getCurrentTextEditor())
+            ed->setInputRestrictions(3, "0123456789");
+    };
+    bpmLabel.onTextChange = [this]
+    {
+        if (auto bpm = bpmLabel.getText().getFloatValue(); bpm > 0.0f)
+            processorRef.setManualBpm(bpm);
+    };
     addAndMakeVisible(bpmLabel);
 
     addAndMakeVisible(inputMeter);
@@ -308,8 +322,9 @@ void DecimulGuitarsEditor::timerCallback()
 
     bypassButton.repaint();
 
-    bpmLabel.setText(juce::String((int) processorRef.manualBpm.load()) + " BPM",
-                      juce::dontSendNotification);
+    if (!bpmLabel.isBeingEdited())
+        bpmLabel.setText(juce::String((int) processorRef.manualBpm.load()) + " BPM",
+                          juce::dontSendNotification);
 
     auto& apvts = processorRef.apvts;
     gateModeSel.setSelectedIndex((int) apvts.getRawParameterValue(ParamIDs::gateMode)->load());

@@ -45,12 +45,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
         pid(ParamIDs::lowGain), "Low", dbRange(-12.0f, 12.0f), 0.0f, dbAttr));
     params.push_back(std::make_unique<AudioParameterChoice>(
         pid(ParamIDs::lowMode), "Low Character", StringArray { "Warm", "Deep", "Air-Cut" }, 0));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::lowEnabled), "Low Enabled", true));
 
     // --- Tone: High ---
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::highGain), "High", dbRange(-12.0f, 12.0f), 0.0f, dbAttr));
     params.push_back(std::make_unique<AudioParameterChoice>(
         pid(ParamIDs::highMode), "High Character", StringArray { "Silk", "Sheen", "Crisp" }, 0));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::highEnabled), "High Enabled", true));
 
     // --- Dynamics ---
     params.push_back(std::make_unique<AudioParameterFloat>(
@@ -59,6 +63,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
         pid(ParamIDs::compMode), "Dynamics Character", StringArray { "Glue", "Snap", "Squash" }, 0));
     params.push_back(std::make_unique<AudioParameterChoice>(
         pid(ParamIDs::compOversample), "Oversample", StringArray { "Off", "2x", "4x" }, 0));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::compEnabled), "Dynamics Enabled", true));
 
     // --- Space A (reverb 1) ---
     params.push_back(std::make_unique<AudioParameterFloat>(
@@ -69,6 +75,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
         pid(ParamIDs::spaceAPreDelay), "Space A Pre-Delay", dbRange(0.0f, 500.0f), 0.0f, msAttr));
     params.push_back(std::make_unique<AudioParameterBool>(
         pid(ParamIDs::spaceAPreDelaySync), "Space A Pre-Delay Sync", false));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::spaceAEnabled), "Space A Enabled", true));
 
     // --- Space B (reverb 2) ---
     params.push_back(std::make_unique<AudioParameterFloat>(
@@ -79,6 +87,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
         pid(ParamIDs::spaceBPreDelay), "Space B Pre-Delay", dbRange(0.0f, 500.0f), 0.0f, msAttr));
     params.push_back(std::make_unique<AudioParameterBool>(
         pid(ParamIDs::spaceBPreDelaySync), "Space B Pre-Delay Sync", false));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::spaceBEnabled), "Space B Enabled", true));
 
     // --- Echo ---
     params.push_back(std::make_unique<AudioParameterFloat>(
@@ -87,12 +97,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
         pid(ParamIDs::echoDivision), "Echo Division", StringArray { "Slap", "8th", "Quarter" }, 0));
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::echoFeedback), "Echo Feedback", pctRange, 35.0f, pctAttr));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::echoEnabled), "Echo Enabled", true));
 
     // --- Blend / Output ---
+    // Blend solo mezcla dry (post-core) contra los retornos de Space A/B/Echo — Low/
+    // High/Dynamics son "core" y quedan siempre 100% activos (ver nota v0.2 en el .h).
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::blend), "Blend", pctRange, 100.0f, pctAttr));
+    // Piso bajado de -24 a -60dB (mismo ajuste que Guitars v0.2).
     params.push_back(std::make_unique<AudioParameterFloat>(
-        pid(ParamIDs::outputTrim), "Output", dbRange(-24.0f, 24.0f), 0.0f, dbAttr));
+        pid(ParamIDs::outputTrim), "Output", dbRange(-60.0f, 24.0f), 0.0f, dbAttr));
 
     params.push_back(std::make_unique<AudioParameterBool>(
         pid(ParamIDs::bypass), "Bypass", false));
@@ -221,12 +236,8 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 
     inputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
 
-    // Dry tap: copia post-Input Trim, pre-Tone/Dynamics. Blend hace crossfade entre
-    // esto y la señal totalmente procesada (core + retornos de Space A/B/Echo).
-    for (int ch = 0; ch < numChannels; ++ch)
-        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-
     // --- Tone: Low + High shelving, 3 "carácter" por banda ---
+    if (apvts.getRawParameterValue(ParamIDs::lowEnabled)->load() > 0.5f)
     {
         const float lowGainDb = apvts.getRawParameterValue(ParamIDs::lowGain)->load();
         const int lowMode = (int) apvts.getRawParameterValue(ParamIDs::lowMode)->load();
@@ -234,6 +245,12 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         *lowFilter.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(
             currentSampleRate, lowFreq, 0.7071f, juce::Decibels::decibelsToGain(lowGainDb));
 
+        juce::dsp::AudioBlock<float> block(buffer);
+        juce::dsp::ProcessContextReplacing<float> context(block);
+        lowFilter.process(context);
+    }
+    if (apvts.getRawParameterValue(ParamIDs::highEnabled)->load() > 0.5f)
+    {
         const float highGainDb = apvts.getRawParameterValue(ParamIDs::highGain)->load();
         const int highMode = (int) apvts.getRawParameterValue(ParamIDs::highMode)->load();
         const float highFreq = highMode == 0 ? 8000.0f : (highMode == 1 ? 5000.0f : 10000.0f); // Silk/Sheen/Crisp
@@ -242,11 +259,11 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 
         juce::dsp::AudioBlock<float> block(buffer);
         juce::dsp::ProcessContextReplacing<float> context(block);
-        lowFilter.process(context);
         highFilter.process(context);
     }
 
     // --- Dynamics: compresor mapeado desde compAmount (0-100%) + compMode ---
+    if (apvts.getRawParameterValue(ParamIDs::compEnabled)->load() > 0.5f)
     {
         const float amount = apvts.getRawParameterValue(ParamIDs::compAmount)->load();
         const int mode = (int) apvts.getRawParameterValue(ParamIDs::compMode)->load();
@@ -277,16 +294,22 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
                                              - juce::Decibels::gainToDecibels(postMag)));
     }
 
-    // A partir de acá, `buffer` es el "core" (Tone+Dynamics aplicados). Lo dejamos en
-    // scratchBuffer para poder mandarlo en paralelo a Space A, Space B y Echo, y
-    // reconstruir `buffer` como acumulador de core + retornos.
+    // A partir de acá, `buffer` es el "core" (Low/High/Dynamics aplicados — SIEMPRE
+    // 100% activo, Blend no lo toca). Dry tap para Blend: recién ahora, después del
+    // core (antes se tomaba antes del core, y eso diluía el EQ/compresor con
+    // Blend < 100%; decisión revisada tras el testing real de Guitars v0.2, ver nota
+    // en el .h). scratchBuffer queda para mandar el core en paralelo a Space A/B/Echo.
     for (int ch = 0; ch < numChannels; ++ch)
+    {
+        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
         scratchBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+    }
 
     // --- Space A (reverb 1) ---
     {
+        const bool enabled = apvts.getRawParameterValue(ParamIDs::spaceAEnabled)->load() > 0.5f;
         const float mix = apvts.getRawParameterValue(ParamIDs::spaceAMix)->load() / 100.0f;
-        if (mix > 0.0001f)
+        if (enabled && mix > 0.0001f)
         {
             const int type = (int) apvts.getRawParameterValue(ParamIDs::spaceAType)->load();
             juce::dsp::Reverb::Parameters p;
@@ -295,7 +318,9 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
             else if (type == 1) { p.roomSize = 0.6f; p.damping = 0.4f; }
             else                { p.roomSize = 0.9f; p.damping = 0.2f; }
             p.width = 1.0f;
-            p.wetLevel = mix;
+            // Headroom (mismo ajuste que Guitars v0.2): tope 0.85 en vez de 0-1
+            // completo, para no irse a rojo tan fácil con el fader alto.
+            p.wetLevel = mix * 0.85f;
             p.dryLevel = 0.0f;
             reverbA.setParameters(p);
 
@@ -322,8 +347,9 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 
     // --- Space B (reverb 2) ---
     {
+        const bool enabled = apvts.getRawParameterValue(ParamIDs::spaceBEnabled)->load() > 0.5f;
         const float mix = apvts.getRawParameterValue(ParamIDs::spaceBMix)->load() / 100.0f;
-        if (mix > 0.0001f)
+        if (enabled && mix > 0.0001f)
         {
             const int type = (int) apvts.getRawParameterValue(ParamIDs::spaceBType)->load();
             juce::dsp::Reverb::Parameters p;
@@ -332,7 +358,7 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
             else if (type == 1) { p.roomSize = 0.5f; p.damping = 0.4f; }
             else                { p.roomSize = 0.95f; p.damping = 0.1f; }
             p.width = 1.0f;
-            p.wetLevel = mix;
+            p.wetLevel = mix * 0.85f; // headroom, ver Space A
             p.dryLevel = 0.0f;
             reverbB.setParameters(p);
 
@@ -359,8 +385,9 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 
     // --- Echo: delay con feedback, tempo-synced ---
     {
+        const bool enabled = apvts.getRawParameterValue(ParamIDs::echoEnabled)->load() > 0.5f;
         const float mix = apvts.getRawParameterValue(ParamIDs::echoMix)->load() / 100.0f;
-        if (mix > 0.0001f)
+        if (enabled && mix > 0.0001f)
         {
             const int division = (int) apvts.getRawParameterValue(ParamIDs::echoDivision)->load();
             const float feedback = apvts.getRawParameterValue(ParamIDs::echoFeedback)->load() / 100.0f;
@@ -441,6 +468,11 @@ void DecimulAcousticProcessor::tapTempo()
         manualBpm.store((float) (60000.0 / delta));
 
     lastTapTimeMs = now;
+}
+
+void DecimulAcousticProcessor::setManualBpm(float bpm)
+{
+    manualBpm.store(juce::jlimit(20.0f, 300.0f, bpm));
 }
 
 void DecimulAcousticProcessor::getStateInformation(juce::MemoryBlock& destData)

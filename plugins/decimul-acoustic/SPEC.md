@@ -15,78 +15,102 @@ conocidas al inicio de `PluginProcessor.h`. El "look" (LookAndFeel + chrome +
 componentes) vive en [shared/](../../shared), no en este plugin — ver el README de la
 raíz del repo.
 
+## v0.2 — generalizado desde el testing real de Guitars (2026-09-30)
+
+Guitars pasó por una ronda de testing real con guitarrista y salieron fixes que
+también aplican acá (mismo `shared/`, mismo patrón de cadena de señal). Ver el
+changelog completo en [plugins/decimul-guitars/SPEC.md](../decimul-guitars/SPEC.md).
+
+- **Blend reubicado**: Low/High/Dynamics pasan a ser "core", SIEMPRE 100% activos — el
+  dry tap se toma DESPUÉS del core (no antes, como en v0.1). Blend ya no diluye el
+  EQ/compresor, solo mezcla dry vs. los retornos de Space A/Space B/Echo.
+- **Cada uno de los 6 módulos principales suma un booleano `...Enabled`** con LED
+  clickeable (`DecimuLedButton`, en `shared/`) — apaga el módulo entero sin bajarle el
+  fader a cero.
+- **Reverbs con headroom interno** (`wetLevel` tope 0.85 en vez de 1.0) — mismo
+  problema que tenía Guitars con Hall: con el fader alto se iba a rojo con facilidad.
+- **Output: piso bajado** de -24dB a -60dB.
+- **Casillero de texto para el BPM manual** (`bpmLabel` editable, doble click) —
+  alternativa al botón TAP, mismo uso (fallback sin host).
+
 ## Cadena de señal
 
 ```
-Input Trim ─► Tone (Low + High, con carácter) ─► Dynamics (compresor, con carácter)
-   ─► Space A (reverb 1) ─┐
-   ─► Space B (reverb 2) ─┼─► suma ─► Echo (delay tempo-sync) ─► Blend (dry/wet) ─► Output Trim
-   (dry tap) ─────────────┘
+Input Trim ─► Low ─► High ─► Dynamics (= "core", siempre 100% activo)
+                                 │
+                                 ├─► Space A ──────┐
+                                 ├─► Space B ──────┼─► Echo ─► Blend ─► Output Trim
+                                 └─(dry tap) ───────┘
 ```
 
-Space A y Space B corren en paralelo alimentados por la señal post-Dynamics (como el
-original: dos reverbs independientes, no en serie), se suman, y ahí entra el Echo.
+`core` = Low→High→Dynamics en serie, sin diluir por Blend (cada uno puede apagarse
+individual con su LED). Space A y Space B corren en paralelo alimentados por el core,
+se suman, y esa suma entra a Echo. El dry tap para Blend se toma DESPUÉS del core.
+Blend cruza entre ese dry y ese wet (core + retornos) — o sea, solo decide cuánto de
+Space A/Space B/Echo se escucha, nunca cuánto de Low/High/Dynamics.
 
 ## Parámetros (para `AudioProcessorValueTreeState`)
 
 | ID | Nombre UI | Tipo | Rango | Default | Notas |
 |---|---|---|---|---|---|
-| `inputTrim` | Input | float dB | -24..+24 | 0 | con auto-gain sugerido (botón "Auto", ver valor agregado) |
-| `lowGain` | Low | float dB | -12..+12 | 0 | bypass real en 0 |
+| `inputTrim` | Input | float dB | -24..+24 | 0 | |
+| `lowGain` | Low | float dB | -12..+12 | 0 | |
 | `lowMode` | Low Character | choice | Warm / Deep / Air-Cut | Warm | 3 filtros distintos, no solo ganancia |
-| `highGain` | High | float dB | -12..+12 | 0 | bypass real en 0 |
+| `lowEnabled` | — | bool (LED) | on/off | **on** | apaga Low entero |
+| `highGain` | High | float dB | -12..+12 | 0 | |
 | `highMode` | High Character | choice | Silk / Sheen / Crisp | Silk | |
-| `compAmount` | Dynamics | float 0-100% | 0..100 | 0 | 0% = bypass real |
-| `compMode` | Dynamics Character | choice | Glue / Snap / Squash | Glue | basado en Airwindows Pop!/Pulse/Volt |
-| `compOversample` | Oversample x2/x4 | choice | Off / 2x / 4x | Off | valor agregado |
+| `highEnabled` | — | bool (LED) | on/off | **on** | apaga High entero |
+| `compAmount` | Dynamics | float 0-100% | 0..100 | 0 | |
+| `compMode` | Dynamics Character | choice | Glue / Snap / Squash | Glue | |
+| `compOversample` | Oversample x2/x4 | choice | Off / 2x / 4x | Off | declarado, todavía sin efecto (ver limitaciones en el .h) |
+| `compEnabled` | — | bool (LED) | on/off | **on** | apaga Dynamics entero |
 | `spaceAMix` | Space A | float 0-100% | 0..100 | 0 | |
-| `spaceAType` | Space A Type | choice | Room / Hall / Cathedral | Room | de Airwindows Spaces |
-| `spaceAPreDelay` | Space A Pre-Delay | float ms | 0-500ms | 0 | valor libre en ms |
-| `spaceAPreDelaySync` | Space A Pre-Delay Sync | bool | on/off | off | on = usa división rítmica (tempo host o `manualBpm`) en vez de ms libres |
+| `spaceAType` | Space A Type | choice | Room / Hall / Cathedral | Room | |
+| `spaceAPreDelay` | Space A Pre-Delay | knob, ms | 0-500ms | 0 | delay real antes del reverb |
+| `spaceAPreDelaySync` | Space A Pre-Delay Sync | bool | on/off | off | declarado, todavía sin efecto |
+| `spaceAEnabled` | — | bool (LED) | on/off | **on** | apaga Space A entero |
 | `spaceBMix` | Space B | float 0-100% | 0..100 | 0 | |
 | `spaceBType` | Space B Type | choice | Close / Wide / Vast | Close | |
-| `spaceBPreDelay` | Space B Pre-Delay | float ms | 0-500ms | 0 | |
-| `spaceBPreDelaySync` | Space B Pre-Delay Sync | bool | on/off | off | |
+| `spaceBPreDelay` | Space B Pre-Delay | knob, ms | 0-500ms | 0 | |
+| `spaceBPreDelaySync` | Space B Pre-Delay Sync | bool | on/off | off | declarado, todavía sin efecto |
+| `spaceBEnabled` | — | bool (LED) | on/off | **on** | apaga Space B entero |
 | `echoMix` | Echo | float 0-100% | 0..100 | 0 | |
 | `echoDivision` | Echo Division | choice | Slap / 8th / Quarter | Slap | tempo-synced |
-| `echoFeedback` | Echo Feedback | float 0-100% | 0..100 | 35 | knob; 100% = repeticiones sin decaer (no diverge, pero no baja) |
-| `blend` | Blend (Dry/Wet) | float % | 0..100 | 100 | reemplaza el "Direct on/off" binario por mezcla continua |
-| `outputTrim` | Output | float dB | -24..+24 | 0 | |
-| `bypass` | Bypass general | bool | — | off | |
+| `echoFeedback` | Echo Feedback | knob, % | 0..100 | 35 | 100% = repite sin decaer (no diverge) |
+| `echoEnabled` | — | bool (LED) | on/off | **on** | apaga Echo entero |
+| `blend` | Blend (Dry/Wet) | float % | 0..100 | 100 | solo mezcla Space A+Space B+Echo, ver arriba |
+| `outputTrim` | Output | float dB | -60..+24 | 0 | |
+| `bypass` | Bypass general | bool | — | off | se dibuja como el indicador "REC" |
 
 Meters (no automatizables, solo lectura para la UI): input peak, output peak, gain
-reduction del compresor, correlación estéreo post Space A+B.
+reduction del compresor, correlación estéreo post Space A+B (calculada, sin widget
+propio en la UI todavía).
 
-**Tap Tempo** (`tapTempo()` + `manualBpm`) queda afuera del APVTS a propósito: es un
-gesto transitorio de UI (click de un botón), no un valor con sentido para automatizar
-desde una DAW. Vive como método público en `DecimulAcousticProcessor` que la UI llama en
-cada click; el BPM calculado se guarda igual en el estado del plugin (XML) para que
-sobreviva a cerrar/abrir la sesión.
+**Tap Tempo** (`tapTempo()` + `manualBpm`) y **BPM manual por texto**
+(`setManualBpm()` + `bpmLabel` editable) quedan afuera del APVTS a propósito: son
+gestos transitorios de UI (click o tipeo), no valores con sentido para automatizar
+desde una DAW. Viven como métodos públicos en `DecimulAcousticProcessor`; el BPM
+calculado se guarda igual en el estado del plugin (XML) para que sobreviva a cerrar/
+abrir la sesión. Cuando hay host con tempo válido, el host tiene prioridad sobre
+ambos — comportamiento esperado, confirmado en testing con Guitars.
 
 **Buses de entrada**: acepta mono→estéreo (mic/DI directo) además de estéreo→estéreo,
 igual que los dos componentes del CLA Unplugged original — ver `isBusesLayoutSupported`.
 
 ## Valor agregado sobre el original (para que no sea "una copia")
 
-1. **Bypass real** en cada módulo cuando su mix/ganancia está en 0 (el original aplica
-   procesamiento fijo incluso en 0).
-2. **Blend continuo dry/wet** (0-100%) en vez de un simple on/off de "Direct".
-3. **Auto-gain**: botón que analiza picos de los últimos ~5s y sugiere `inputTrim`.
-4. **Tap tempo** manual para cuando corre standalone sin BPM de host.
-5. **Oversampling opcional** (2x/4x) en Dynamics para reducir aliasing en material con
-   armónicos altos (voz, nylon).
-6. **Overlay de espectro** en tiempo real detrás de los controles de Tone (feedback visual
-   de qué está haciendo el EQ).
-7. **Medidor de correlación estéreo** post reverbs (evita sorpresas de fase en mono).
-8. **UI vectorial escalable** (HiDPI) con tema claro/oscuro, en vez de skin bitmap fijo.
-9. **Presets de fábrica por instrumento** (Vocal, Guitarra Acústica, Piano, Cuerdas, Nylon)
-   con import/export de `.xml`, pensado para compartir presets en la comunidad
-   (donationware = ecosistema abierto).
-10. Licencia **GPLv3**, código fuente completo público.
+Construido: bypass real por módulo (1), blend continuo (2, redefinido en v0.2), tap
+tempo + BPM manual (4), UI vectorial escalable (8), licencia GPLv3 (10). Los demás
+(auto-gain, oversampling activo, overlay de espectro, medidor de correlación con
+widget propio, presets de fábrica) son ideas anotadas, todavía no construidas — se
+dejan documentadas acá para no perderlas, pero no describen el estado actual del
+plugin.
 
 ## Próximo paso
 
-UI y DSP de referencia listos. Lo que queda es reemplazar el DSP de referencia por
-Airwindows (ver docs/research/dsp-references.md) para pasar de "suena a compresor/
-reverb genéricos" a la calidad final. La UI no debería necesitar cambios para eso —
-los parámetros son los mismos, solo cambia qué hay detrás de cada uno.
+Otra ronda de testing (ahora con las voces/acústicos que es el target real de este
+plugin) para confirmar que el reordenamiento de Blend y los LEDs se sienten bien acá
+también. A más largo plazo: reemplazar el DSP de referencia por Airwindows (ver
+docs/research/dsp-references.md) para pasar de "suena a compresor/reverb genéricos" a
+la calidad final — la UI no debería necesitar cambios para eso, solo cambia qué hay
+detrás de cada parámetro.

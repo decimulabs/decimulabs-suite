@@ -6,6 +6,7 @@
 #include <DecimuLedStackSelector.h>
 #include <DecimuLadderMeter.h>
 #include <DecimuVuArc.h>
+#include <DecimuLedButton.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /**
@@ -17,6 +18,11 @@
     rack, VU en arco funcional en el header. Todo el "look" (LookAndFeel, chrome,
     selectores, meters, VU) vive en shared/ — este archivo solo compone el layout
     específico de Acoustic. Ver shared/Source/DecimuChrome.h.
+
+    v0.2 (generalizado desde el testing real de Guitars, ver su SPEC.md): cada uno de
+    los 6 módulos principales tiene un LED clickeable (on/off, `DecimuLedButton`) — y
+    `bpmLabel` ahora también es editable (doble click para escribir el BPM a mano,
+    alternativa al botón TAP).
 */
 class DecimulAcousticEditor : public juce::AudioProcessorEditor,
                                private juce::Timer
@@ -40,12 +46,11 @@ private:
 
     juce::Image wordmarkImage, dogImage;
 
-    // Rectángulos calculados en resized() y usados en paint() para dibujar el chasis,
-    // los compartimentos y los LEDs de los knobs.
+    // Rectángulos calculados en resized() y usados en paint() para dibujar el chasis
+    // y los compartimentos.
     juce::Rectangle<int> topbarRect, inputCompRect, mainCompRect, blendCompRect, outputCompRect;
     juce::Rectangle<int> spaceACompRect, spaceBCompRect;
     juce::Rectangle<int> headerLogoArea;
-    juce::Rectangle<float> spaceALedRect, spaceBLedRect, echoLedRect;
 
     juce::Slider inputSlider, lowSlider, highSlider, compSlider,
                  spaceASlider, spaceBSlider, echoSlider, blendSlider, outputSlider;
@@ -55,13 +60,16 @@ private:
     juce::Slider spaceAPreDelayKnob, spaceBPreDelayKnob, echoFeedbackKnob;
     juce::Label spaceAKnobLabel, spaceBKnobLabel, echoKnobLabel;
 
+    // Botones LED (no solo indicador): apagan/prenden el módulo entero.
+    DecimuLedButton lowLedBtn, highLedBtn, compLedBtn, spaceALedBtn, spaceBLedBtn, echoLedBtn;
+
     DecimuLedStackSelector lowModeSel, highModeSel, compModeSel,
                             spaceATypeSel, spaceBTypeSel, echoDivisionSel;
 
     // Se dibuja como el indicador "REC" del sitio (ver DecimuLookAndFeel::drawToggleButton).
     juce::ToggleButton bypassButton;
     juce::TextButton tapTempoButton { "TAP" };
-    juce::Label bpmLabel;
+    juce::Label bpmLabel; // editable: doble click para escribir el BPM manual a mano
 
     DecimuLadderMeter inputMeter, outputMeter;
     DecimuVuArc vuArc;
@@ -72,7 +80,8 @@ private:
     std::unique_ptr<SliderAttachment> inputAttach, lowAttach, highAttach, compAttach,
                                        spaceAAttach, spaceBAttach, echoAttach, blendAttach, outputAttach,
                                        spaceAPreDelayAttach, spaceBPreDelayAttach, echoFeedbackAttach;
-    std::unique_ptr<ButtonAttachment> bypassAttach;
+    std::unique_ptr<ButtonAttachment> bypassAttach, lowEnabledAttach, highEnabledAttach, compEnabledAttach,
+                                       spaceAEnabledAttach, spaceBEnabledAttach, echoEnabledAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulAcousticEditor)
 };

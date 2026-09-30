@@ -76,12 +76,31 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     setupSelector(spaceBTypeSel, { "Close", "Wide", "Vast" }, ParamIDs::spaceBType);
     setupSelector(echoDivisionSel, { "Slap", "8th", "Quarter" }, ParamIDs::echoDivision);
 
+    // LEDs clickeables: on/off de todo el módulo (generalizado desde el testing de Guitars).
+    for (auto* led : { &lowLedBtn, &highLedBtn, &compLedBtn, &spaceALedBtn, &spaceBLedBtn, &echoLedBtn })
+        addAndMakeVisible(led);
+
     addAndMakeVisible(bypassButton);
     addAndMakeVisible(tapTempoButton);
     tapTempoButton.onClick = [this] { processorRef.tapTempo(); };
 
+    // BPM editable: doble click para escribir a mano (alternativa al TAP, pedido en
+    // testing — "no solo el tap"). Mismo alcance que TAP: fallback sin host, el host
+    // (cuando da un tempo válido) manda por encima de esto.
     bpmLabel.setJustificationType(juce::Justification::centred);
     bpmLabel.setColour(juce::Label::textColourId, DecimuColours::textMuted);
+    bpmLabel.setEditable(false, true, false);
+    bpmLabel.setTooltip("Tempo manual (fallback sin host): doble click para escribirlo, o TAP");
+    bpmLabel.onEditorShow = [this]
+    {
+        if (auto* ed = bpmLabel.getCurrentTextEditor())
+            ed->setInputRestrictions(3, "0123456789");
+    };
+    bpmLabel.onTextChange = [this]
+    {
+        if (auto bpm = bpmLabel.getText().getFloatValue(); bpm > 0.0f)
+            processorRef.setManualBpm(bpm);
+    };
     addAndMakeVisible(bpmLabel);
 
     addAndMakeVisible(inputMeter);
@@ -102,7 +121,13 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     spaceBPreDelayAttach = std::make_unique<SliderAttachment>(apvts, ParamIDs::spaceBPreDelay, spaceBPreDelayKnob);
     echoFeedbackAttach   = std::make_unique<SliderAttachment>(apvts, ParamIDs::echoFeedback, echoFeedbackKnob);
 
-    bypassAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
+    bypassAttach        = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
+    lowEnabledAttach     = std::make_unique<ButtonAttachment>(apvts, ParamIDs::lowEnabled, lowLedBtn);
+    highEnabledAttach    = std::make_unique<ButtonAttachment>(apvts, ParamIDs::highEnabled, highLedBtn);
+    compEnabledAttach    = std::make_unique<ButtonAttachment>(apvts, ParamIDs::compEnabled, compLedBtn);
+    spaceAEnabledAttach  = std::make_unique<ButtonAttachment>(apvts, ParamIDs::spaceAEnabled, spaceALedBtn);
+    spaceBEnabledAttach  = std::make_unique<ButtonAttachment>(apvts, ParamIDs::spaceBEnabled, spaceBLedBtn);
+    echoEnabledAttach    = std::make_unique<ButtonAttachment>(apvts, ParamIDs::echoEnabled, echoLedBtn);
 
     setSize(1180, 560);
     setResizable(true, true);
@@ -130,9 +155,7 @@ void DecimulAcousticEditor::paint(juce::Graphics& g)
     DecimuChrome::paintCompartment(g, blendCompRect.toFloat(), false, 8.0f);
     DecimuChrome::paintCompartment(g, outputCompRect.toFloat(), true, 8.0f);
 
-    DecimuChrome::paintLed(g, spaceALedRect);
-    DecimuChrome::paintLed(g, spaceBLedRect);
-    DecimuChrome::paintLed(g, echoLedRect);
+    // Los LEDs de cada módulo ahora son DecimuLedButton (se pintan solos).
 
     // Copia local: headerLogoArea es un miembro (calculado una vez en resized()) — si
     // le hiciéramos removeFromLeft() directo se iría achicando en cada repintado.
@@ -196,18 +219,25 @@ void DecimulAcousticEditor::resized()
     auto mainArea = mainCompRect.reduced(8);
     const int colW = mainArea.getWidth() / 6;
 
-    auto layoutSimpleModule = [&](juce::Rectangle<int> col, DecimuLedStackSelector& sel,
+    // Low/High/Dynamics: LED + selector + fader (sin knob).
+    auto layoutSimpleModule = [&](juce::Rectangle<int> col, DecimuLedButton& led, DecimuLedStackSelector& sel,
                                    juce::Slider& slider, juce::Label& label)
     {
         col = col.reduced(4);
         auto labelArea = col.removeFromBottom(20);
         label.setBounds(labelArea);
+
+        auto ledArea = col.removeFromTop(10);
+        led.setBounds(ledArea.withSizeKeepingCentre(8, 8));
+        col.removeFromTop(4);
+
         auto selArea = col.removeFromTop(48);
         sel.setBounds(selArea);
         slider.setBounds(col);
     };
 
-    auto layoutKnobModule = [&](juce::Rectangle<int> col, juce::Rectangle<float>& ledRectOut,
+    // Space A/Space B/Echo: LED + knob + selector + fader.
+    auto layoutKnobModule = [&](juce::Rectangle<int> col, DecimuLedButton& led,
                                  juce::Slider& knob, juce::Label& knobLabel,
                                  DecimuLedStackSelector& sel, juce::Slider& slider, juce::Label& label)
     {
@@ -216,7 +246,7 @@ void DecimulAcousticEditor::resized()
         label.setBounds(labelArea);
 
         auto ledArea = col.removeFromTop(10);
-        ledRectOut = ledArea.withSizeKeepingCentre(8, 8).toFloat();
+        led.setBounds(ledArea.withSizeKeepingCentre(8, 8));
 
         auto knobArea = col.removeFromTop(52);
         knob.setBounds(knobArea.withSizeKeepingCentre(46, 46));
@@ -228,19 +258,19 @@ void DecimulAcousticEditor::resized()
         slider.setBounds(col);
     };
 
-    layoutSimpleModule(mainArea.removeFromLeft(colW), lowModeSel, lowSlider, lowLabel);
-    layoutSimpleModule(mainArea.removeFromLeft(colW), highModeSel, highSlider, highLabel);
-    layoutSimpleModule(mainArea.removeFromLeft(colW), compModeSel, compSlider, compLabel);
+    layoutSimpleModule(mainArea.removeFromLeft(colW), lowLedBtn, lowModeSel, lowSlider, lowLabel);
+    layoutSimpleModule(mainArea.removeFromLeft(colW), highLedBtn, highModeSel, highSlider, highLabel);
+    layoutSimpleModule(mainArea.removeFromLeft(colW), compLedBtn, compModeSel, compSlider, compLabel);
 
     spaceACompRect = mainArea.removeFromLeft(colW);
-    layoutKnobModule(spaceACompRect, spaceALedRect, spaceAPreDelayKnob, spaceAKnobLabel,
+    layoutKnobModule(spaceACompRect, spaceALedBtn, spaceAPreDelayKnob, spaceAKnobLabel,
                       spaceATypeSel, spaceASlider, spaceALabel);
 
     spaceBCompRect = mainArea.removeFromLeft(colW);
-    layoutKnobModule(spaceBCompRect, spaceBLedRect, spaceBPreDelayKnob, spaceBKnobLabel,
+    layoutKnobModule(spaceBCompRect, spaceBLedBtn, spaceBPreDelayKnob, spaceBKnobLabel,
                       spaceBTypeSel, spaceBSlider, spaceBLabel);
 
-    layoutKnobModule(mainArea, echoLedRect, echoFeedbackKnob, echoKnobLabel,
+    layoutKnobModule(mainArea, echoLedBtn, echoFeedbackKnob, echoKnobLabel,
                       echoDivisionSel, echoSlider, echoLabel);
 
     // --- Blend: comparte columna con el botón de Tap Tempo + BPM ---
@@ -279,8 +309,11 @@ void DecimulAcousticEditor::timerCallback()
 
     bypassButton.repaint(); // anima el pulso del punto "REC" (ver DecimuLookAndFeel)
 
-    bpmLabel.setText(juce::String((int) processorRef.manualBpm.load()) + " BPM",
-                      juce::dontSendNotification);
+    // No pisar el texto mientras se está editando (si no, cada tick del timer borra
+    // lo que el usuario está tipeando antes de que termine de escribir el número).
+    if (!bpmLabel.isBeingEdited())
+        bpmLabel.setText(juce::String((int) processorRef.manualBpm.load()) + " BPM",
+                          juce::dontSendNotification);
 
     // Sincroniza los selectores tipo LED con el valor real del parámetro (por si
     // cambió por automatización de host o al cargar un preset, no solo por click).

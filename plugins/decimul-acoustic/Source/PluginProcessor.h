@@ -10,22 +10,28 @@ namespace ParamIDs
     static const juce::String inputTrim          = "inputTrim";
     static const juce::String lowGain            = "lowGain";
     static const juce::String lowMode            = "lowMode";
+    static const juce::String lowEnabled         = "lowEnabled";
     static const juce::String highGain           = "highGain";
     static const juce::String highMode           = "highMode";
+    static const juce::String highEnabled        = "highEnabled";
     static const juce::String compAmount         = "compAmount";
     static const juce::String compMode           = "compMode";
     static const juce::String compOversample     = "compOversample";
+    static const juce::String compEnabled        = "compEnabled";
     static const juce::String spaceAMix          = "spaceAMix";
     static const juce::String spaceAType         = "spaceAType";
     static const juce::String spaceAPreDelay     = "spaceAPreDelay";
     static const juce::String spaceAPreDelaySync = "spaceAPreDelaySync";
+    static const juce::String spaceAEnabled      = "spaceAEnabled";
     static const juce::String spaceBMix          = "spaceBMix";
     static const juce::String spaceBType         = "spaceBType";
     static const juce::String spaceBPreDelay     = "spaceBPreDelay";
     static const juce::String spaceBPreDelaySync = "spaceBPreDelaySync";
+    static const juce::String spaceBEnabled      = "spaceBEnabled";
     static const juce::String echoMix            = "echoMix";
     static const juce::String echoDivision       = "echoDivision";
     static const juce::String echoFeedback       = "echoFeedback";
+    static const juce::String echoEnabled        = "echoEnabled";
     static const juce::String blend              = "blend";
     static const juce::String outputTrim         = "outputTrim";
     static const juce::String bypass             = "bypass";
@@ -57,6 +63,18 @@ namespace ParamIDs
       efecto — quedan para la integración con Airwindows.
     - El feedback del Echo ahora es un parámetro real (`echoFeedback`, 0-100%, default
       35% — antes era una constante interna fija).
+
+    v0.2 (generalizado desde el testing real de DecimuLabs Guitars, ver su SPEC.md):
+    - Blend reubicado: Low/High/Dynamics son "core", SIEMPRE 100% activos — el dry tap
+      se toma DESPUÉS del core (no antes), así Blend solo mezcla dry vs. los retornos
+      de Space A/Space B/Echo, nunca diluye el EQ/compresor.
+    - Low/High/Dynamics/Space A/Space B/Echo suman cada uno un booleano `...Enabled`
+      con LED clickeable en la UI — apaga el módulo entero sin bajar el fader a cero.
+    - Reverbs (Space A/B) con headroom interno (wetLevel tope 0.85) para no irse a rojo
+      tan fácil con el fader alto.
+    - Output: piso bajado de -24dB a -60dB.
+    - Casillero de texto para escribir el BPM manual a mano, alternativa al botón Tap
+      (mismo uso: fallback sin host).
 */
 class DecimulAcousticProcessor : public juce::AudioProcessor
 {
@@ -98,6 +116,12 @@ public:
         propósito: es un gesto transitorio de UI, no un valor que tenga sentido
         automatizar desde una DAW. Se persiste manualmente en el estado. */
     void tapTempo();
+
+    /** Fija manualBpm directamente (casillero de texto en la UI, alternativa al Tap
+        pedido en testing — "no solo el tap"). Mismo uso que tapTempo(): fallback sin
+        host, no reemplaza el tempo del host cuando este existe (esa prioridad es
+        correcta y ya se confirmó en testing con Guitars). Clampeado a 20-300 BPM. */
+    void setManualBpm(float bpm);
 
     std::atomic<float> manualBpm { 120.0f };
 

@@ -88,6 +88,12 @@ public:
         parámetro APVTS (es un gesto de UI, no algo automatizable), para el fallback
         de tempo de Echo cuando no hay host (standalone). */
     void tapTempo();
+
+    /** Fija manualBpm directamente (casillero de texto en la UI, alternativa al Tap —
+        "no solo el tap"). Mismo uso que tapTempo(): fallback sin host. Clampeado a
+        20-300 BPM. */
+    void setManualBpm(float bpm);
+
     std::atomic<float> manualBpm { 120.0f };
 
     std::atomic<float> inputPeakDb { -100.0f };

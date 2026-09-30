@@ -517,6 +517,11 @@ void DecimulGuitarsProcessor::tapTempo()
     lastTapTimeMs = now;
 }
 
+void DecimulGuitarsProcessor::setManualBpm(float bpm)
+{
+    manualBpm.store(juce::jlimit(20.0f, 300.0f, bpm));
+}
+
 void DecimulGuitarsProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     if (auto state = apvts.copyState(); state.isValid())
