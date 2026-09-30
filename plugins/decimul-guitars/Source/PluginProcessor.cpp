@@ -47,11 +47,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulGuitarsProcessor::cre
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::toneMidFreq), "Mid Sweep", NormalisableRange<float>(300.0f, 3000.0f, 1.0f, 0.4f), 800.0f,
         AudioParameterFloatAttributes().withLabel("Hz")));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::toneEnabled), "Tone Enabled", true));
 
-    params.push_back(std::make_unique<AudioParameterFloat>(
-        pid(ParamIDs::cabAmount), "Cab", pctRange, 0.0f, pctAttr));
+    // Cab es on/off (no blend): o está 100% aplicado o no hace nada — mezclar
+    // "un poco" de color de gabinete no tiene sentido sonoro (feedback de testing).
     params.push_back(std::make_unique<AudioParameterChoice>(
         pid(ParamIDs::cabMode), "Cab Character", StringArray { "Combo", "Stack", "DI" }, 0));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::cabEnabled), "Cab Enabled", false));
 
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::modAmount), "Modulation", pctRange, 0.0f, pctAttr));
@@ -60,6 +64,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulGuitarsProcessor::cre
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::modRate), "Mod Rate", NormalisableRange<float>(0.1f, 5.0f, 0.01f, 0.5f), 0.8f,
         AudioParameterFloatAttributes().withLabel("Hz")));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::modEnabled), "Mod Enabled", true));
 
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::spaceAmount), "Space", pctRange, 0.0f, pctAttr));
@@ -68,6 +74,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulGuitarsProcessor::cre
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::spacePreDelay), "Space Pre-Delay", dbRange(0.0f, 500.0f), 0.0f,
         AudioParameterFloatAttributes().withLabel("ms")));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::spaceEnabled), "Space Enabled", true));
 
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::echoAmount), "Echo", pctRange, 0.0f, pctAttr));
@@ -75,11 +83,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulGuitarsProcessor::cre
         pid(ParamIDs::echoDivision), "Echo Division", StringArray { "Slap", "8th", "Quarter" }, 0));
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::echoFeedback), "Echo Feedback", pctRange, 35.0f, pctAttr));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::echoEnabled), "Echo Enabled", true));
 
+    // Blend solo mezcla dry (post-core) contra los retornos de Space+Mod+Echo — Gate/
+    // Drive/Tone/Cab son "core" y quedan siempre 100% activos, Blend no los diluye
+    // (decisión tomada tras el primer testing real, ver comentario al inicio del .h).
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::blend), "Blend", pctRange, 100.0f, pctAttr));
+    // Piso bajado de -24 a -60dB: a -24 todavía se escuchaba señal con el fader al
+    // mínimo (feedback de testing) — -60dB es, a fines prácticos, silencio.
     params.push_back(std::make_unique<AudioParameterFloat>(
-        pid(ParamIDs::outputTrim), "Output", dbRange(-24.0f, 24.0f), 0.0f, dbAttr));
+        pid(ParamIDs::outputTrim), "Output", dbRange(-60.0f, 24.0f), 0.0f, dbAttr));
 
     params.push_back(std::make_unique<AudioParameterBool>(
         pid(ParamIDs::bypass), "Bypass", false));
@@ -101,7 +116,13 @@ void DecimulGuitarsProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     inputGain.setRampDurationSeconds(0.02);
     outputGain.setRampDurationSeconds(0.02);
 
-    gate.prepare(spec);
+    for (int ch = 0; ch < gateMaxChannels; ++ch)
+    {
+        gateEnvelope[ch] = 0.0f;
+        gateGain[ch] = 0.0f;
+        gateHoldCounter[ch] = 0;
+        gateIsOpen[ch] = false;
+    }
     waveShaper.prepare(spec);
 
     toneLowShelf.prepare(spec);
@@ -203,29 +224,59 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     }
     inputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
 
-    // Dry tap: post Input Trim, pre "core" (Gate->Drive->Tone->Cab).
-    for (int ch = 0; ch < numChannels; ++ch)
-        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-
-    // --- Gate ---
+    // --- Gate: hysteresis + hold propios (ver nota en el .h) ---
     {
         const float amount = apvts.getRawParameterValue(ParamIDs::gateAmount)->load() / 100.0f;
         const int mode = (int) apvts.getRawParameterValue(ParamIDs::gateMode)->load();
 
-        const float thresholdDb = juce::jmap(amount, 0.0f, 1.0f, -80.0f, -20.0f);
-        float attackMs = 1.0f, releaseMs = 50.0f;
-        if (mode == 1) { attackMs = 5.0f;  releaseMs = 150.0f; }
-        if (mode == 2) { attackMs = 10.0f; releaseMs = 300.0f; }
+        const float openThresholdDb = juce::jmap(amount, 0.0f, 1.0f, -80.0f, -20.0f);
+        const float closeThresholdDb = openThresholdDb - 6.0f; // histéresis: evita chattering
 
-        gate.setThreshold(thresholdDb);
-        gate.setRatio(10.0f);
-        gate.setAttack(attackMs);
-        gate.setRelease(releaseMs);
+        float attackMs = 3.0f, releaseMs = 60.0f, holdMs = 15.0f;
+        if (mode == 1) { attackMs = 6.0f;  releaseMs = 150.0f; holdMs = 30.0f; }
+        if (mode == 2) { attackMs = 12.0f; releaseMs = 300.0f; holdMs = 60.0f; }
+
+        const float envAttackCoeff = 1.0f - std::exp(-1.0f / (0.2f * (float) currentSampleRate * 0.001f));
+        const float envReleaseCoeff = 1.0f - std::exp(-1.0f / (10.0f * (float) currentSampleRate * 0.001f));
+        const float gainAttackCoeff = 1.0f - std::exp(-1.0f / (attackMs * (float) currentSampleRate * 0.001f));
+        const float gainReleaseCoeff = 1.0f - std::exp(-1.0f / (releaseMs * (float) currentSampleRate * 0.001f));
+        const int holdSamples = (int) (holdMs * 0.001 * currentSampleRate);
 
         const float preMag = buffer.getMagnitude(0, numSamples);
-        juce::dsp::AudioBlock<float> block(buffer);
-        juce::dsp::ProcessContextReplacing<float> context(block);
-        gate.process(context);
+
+        for (int ch = 0; ch < numChannels && ch < gateMaxChannels; ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const float level = std::abs(data[i]);
+                const float envCoeff = level > gateEnvelope[ch] ? envAttackCoeff : envReleaseCoeff;
+                gateEnvelope[ch] += envCoeff * (level - gateEnvelope[ch]);
+                const float envelopeDb = juce::Decibels::gainToDecibels(gateEnvelope[ch], -100.0f);
+
+                if (!gateIsOpen[ch] && envelopeDb > openThresholdDb)
+                {
+                    gateIsOpen[ch] = true;
+                    gateHoldCounter[ch] = holdSamples;
+                }
+                else if (gateIsOpen[ch])
+                {
+                    if (envelopeDb > closeThresholdDb)
+                        gateHoldCounter[ch] = holdSamples;
+                    else if (gateHoldCounter[ch] > 0)
+                        --gateHoldCounter[ch];
+                    else
+                        gateIsOpen[ch] = false;
+                }
+
+                const float targetGain = gateIsOpen[ch] ? 1.0f : 0.0f;
+                const float gainCoeff = targetGain > gateGain[ch] ? gainAttackCoeff : gainReleaseCoeff;
+                gateGain[ch] += gainCoeff * (targetGain - gateGain[ch]);
+
+                data[i] *= gateGain[ch];
+            }
+        }
+
         const float postMag = buffer.getMagnitude(0, numSamples);
         gainReductionDb.store(juce::jmax(0.0f, juce::Decibels::gainToDecibels(preMag)
                                              - juce::Decibels::gainToDecibels(postMag)));
@@ -237,7 +288,11 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         if (amount > 0.001f)
         {
             const int mode = (int) apvts.getRawParameterValue(ParamIDs::driveMode)->load();
-            const float preGain = 1.0f + amount * 14.0f;
+            // Rango subido de +23dB a +40dB tope: con niveles típicos de guitarra
+            // (bien por debajo de 0dBFS), +23dB no alcanzaba para que Fuzz fuzzeara
+            // de verdad (feedback de testing).
+            const float preGainDb = amount * 40.0f;
+            const float preGain = juce::Decibels::decibelsToGain(preGainDb);
 
             if (mode == 0)      waveShaper.functionToUse = [](float x) { return std::tanh(x); };
             else if (mode == 1) waveShaper.functionToUse = [](float x)
@@ -253,6 +308,7 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     }
 
     // --- Tone: tilt EQ + mid-sweep peak fijo ---
+    if (apvts.getRawParameterValue(ParamIDs::toneEnabled)->load() > 0.5f)
     {
         const float tiltDb = apvts.getRawParameterValue(ParamIDs::toneTilt)->load();
         const int mode = (int) apvts.getRawParameterValue(ParamIDs::toneMode)->load();
@@ -274,12 +330,16 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         toneMidPeak.process(context);
     }
 
-    // --- Cab: aproximación con EQ fija, NO es un cab-sim con impulse response ---
+    // --- Cab: on/off, 100% wet cuando está prendido (nunca blend parcial — no tiene
+    // sentido sonoro mezclar "un poco" de color de gabinete, feedback de testing).
+    // Doble pasada por cada filtro (4º orden, ~24dB/oct) para una caída más parecida
+    // a un speaker real que la pendiente suave (2º orden) de la primera versión.
+    // Aproximación con EQ fija, sigue sin ser un cab-sim con impulse response. ---
+    if (apvts.getRawParameterValue(ParamIDs::cabEnabled)->load() > 0.5f)
     {
-        const float mix = apvts.getRawParameterValue(ParamIDs::cabAmount)->load() / 100.0f;
         const int mode = (int) apvts.getRawParameterValue(ParamIDs::cabMode)->load();
 
-        if (mode != 2 && mix > 0.001f) // DI = sin coloración de cab
+        if (mode != 2) // DI = sin coloración de cab
         {
             const float lowCutFreq = mode == 0 ? 120.0f : 90.0f;
             const float highCutFreq = mode == 0 ? 6500.0f : 5500.0f;
@@ -291,34 +351,31 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
             *cabPresence.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(
                 currentSampleRate, presenceFreq, 1.0f, juce::Decibels::decibelsToGain(presenceGainDb));
 
-            for (int ch = 0; ch < numChannels; ++ch)
-                returnScratch.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-
-            juce::dsp::AudioBlock<float> block(returnScratch);
-            auto subBlock = block.getSubBlock(0, (size_t) numSamples);
-            juce::dsp::ProcessContextReplacing<float> context(subBlock);
+            juce::dsp::AudioBlock<float> block(buffer);
+            juce::dsp::ProcessContextReplacing<float> context(block);
             cabLowCut.process(context);
+            cabLowCut.process(context);   // doble pasada: 4º orden
             cabHighCut.process(context);
+            cabHighCut.process(context);  // doble pasada: 4º orden
             cabPresence.process(context);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-            {
-                auto* out = buffer.getWritePointer(ch);
-                auto* wet = returnScratch.getReadPointer(ch);
-                for (int i = 0; i < numSamples; ++i)
-                    out[i] = out[i] * (1.0f - mix) + wet[i] * mix;
-            }
         }
     }
 
-    // A partir de acá, `buffer` es el "core" (Gate->Drive->Tone->Cab aplicados).
+    // A partir de acá, `buffer` es el "core" (Gate->Drive->Tone->Cab aplicados),
+    // SIEMPRE 100% activo — Blend no lo toca. Dry tap para Blend: recién ahora,
+    // después del core (antes se tomaba antes del core, y eso diluía Drive/Tone con
+    // Blend < 100%; decisión revisada tras el primer testing real).
     for (int ch = 0; ch < numChannels; ++ch)
+    {
+        dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
         scratchBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+    }
 
     // --- Space (un solo reverb, con pre-delay real) ---
     {
+        const bool enabled = apvts.getRawParameterValue(ParamIDs::spaceEnabled)->load() > 0.5f;
         const float mix = apvts.getRawParameterValue(ParamIDs::spaceAmount)->load() / 100.0f;
-        if (mix > 0.0001f)
+        if (enabled && mix > 0.0001f)
         {
             const int type = (int) apvts.getRawParameterValue(ParamIDs::spaceMode)->load();
             juce::dsp::Reverb::Parameters p;
@@ -326,7 +383,10 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
             else if (type == 1) { p.roomSize = 0.5f;  p.damping = 0.25f; p.width = 0.6f; } // Plate (más angosto)
             else                { p.roomSize = 0.85f; p.damping = 0.3f; } // Hall
             if (type != 1) p.width = 1.0f;
-            p.wetLevel = mix;
+            // Headroom: con Hall + fader alto, el reverb sumaba tanta energía que el
+            // Output se iba a rojo con facilidad (feedback de testing). Se limita el
+            // wetLevel efectivo a un tope de 0.85 en vez de 0-1 completo.
+            p.wetLevel = mix * 0.85f;
             p.dryLevel = 0.0f;
             space.setParameters(p);
 
@@ -353,8 +413,9 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
     // --- Modulation: Chorus/Flanger (misma clase, distintos parámetros) o Phaser ---
     {
+        const bool enabled = apvts.getRawParameterValue(ParamIDs::modEnabled)->load() > 0.5f;
         const float mix = apvts.getRawParameterValue(ParamIDs::modAmount)->load() / 100.0f;
-        if (mix > 0.0001f)
+        if (enabled && mix > 0.0001f)
         {
             const int mode = (int) apvts.getRawParameterValue(ParamIDs::modMode)->load();
             const float rateHz = apvts.getRawParameterValue(ParamIDs::modRate)->load();
@@ -368,10 +429,12 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
             if (mode == 2)
             {
+                // Depth/feedback subidos (antes 0.7/0.3): en testing el Phaser sonaba
+                // muy sutil, poco distinguible de los otros dos modos.
                 phaser.setRate(rateHz);
-                phaser.setDepth(0.7f);
-                phaser.setCentreFrequency(800.0f);
-                phaser.setFeedback(0.3f);
+                phaser.setDepth(0.95f);
+                phaser.setCentreFrequency(700.0f);
+                phaser.setFeedback(0.6f);
                 phaser.setMix(1.0f);
                 phaser.process(context);
             }
@@ -391,8 +454,9 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
     // --- Echo: delay con feedback, tempo-synced — mismo código que Acoustic ---
     {
+        const bool enabled = apvts.getRawParameterValue(ParamIDs::echoEnabled)->load() > 0.5f;
         const float mix = apvts.getRawParameterValue(ParamIDs::echoAmount)->load() / 100.0f;
-        if (mix > 0.0001f)
+        if (enabled && mix > 0.0001f)
         {
             const int division = (int) apvts.getRawParameterValue(ParamIDs::echoDivision)->load();
             const float feedback = apvts.getRawParameterValue(ParamIDs::echoFeedback)->load() / 100.0f;

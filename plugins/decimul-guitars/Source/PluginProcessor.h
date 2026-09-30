@@ -14,17 +14,21 @@ namespace ParamIDs
     static const juce::String toneTilt      = "toneTilt";
     static const juce::String toneMode      = "toneMode";
     static const juce::String toneMidFreq   = "toneMidFreq";
-    static const juce::String cabAmount     = "cabAmount";
+    static const juce::String toneEnabled   = "toneEnabled";
+    static const juce::String cabEnabled    = "cabEnabled";
     static const juce::String cabMode       = "cabMode";
     static const juce::String modAmount     = "modAmount";
     static const juce::String modMode       = "modMode";
     static const juce::String modRate       = "modRate";
+    static const juce::String modEnabled    = "modEnabled";
     static const juce::String spaceAmount   = "spaceAmount";
     static const juce::String spaceMode     = "spaceMode";
     static const juce::String spacePreDelay = "spacePreDelay";
+    static const juce::String spaceEnabled  = "spaceEnabled";
     static const juce::String echoAmount    = "echoAmount";
     static const juce::String echoDivision  = "echoDivision";
     static const juce::String echoFeedback  = "echoFeedback";
+    static const juce::String echoEnabled   = "echoEnabled";
     static const juce::String blend         = "blend";
     static const juce::String outputTrim    = "outputTrim";
     static const juce::String bypass        = "bypass";
@@ -32,11 +36,20 @@ namespace ParamIDs
 
 /**
     DecimuLabs Guitars — multiefecto para guitarra eléctrica. Hermano de
-    DecimuLabs Acoustic (mismo `shared/`, mismo patrón de cadena de señal
-    "core + retornos + blend"), con módulos propios de guitarra en vez de los
-    de voz/acústica. Ver SPEC.md para la cadena de señal completa y qué tan
+    DecimuLabs Acoustic (mismo `shared/`), con módulos propios de guitarra en vez de
+    los de voz/acústica. Ver SPEC.md para la cadena de señal completa y qué tan
     "real" es cada etapa del DSP (todo es REFERENCIA con juce::dsp, no la
     calidad final).
+
+    Cadena de señal (revisada tras el primer testing, ver CHANGELOG en SPEC.md):
+    Gate→Drive→Tone→Cab son el "core", SIEMPRE 100% activos (no los toca Blend) —
+    como pedales en serie, no efectos que se puedan diluir. El dry tap para Blend se
+    toma DESPUÉS del core, no antes: Blend solo mezcla ese core seco contra
+    core+retornos de Space/Mod/Echo. Cab es on/off (`cabEnabled`), no un blend — o
+    está 100% aplicado o no está, nunca "un poquito" (no tiene sentido sonoro mezclar
+    parcialmente una simulación de gabinete). Tone/Mod/Space/Echo tienen además un
+    booleano `...Enabled` propio (LED clickeable en la UI) para apagar el módulo
+    entero sin tener que bajarle el fader a cero.
 */
 class DecimulGuitarsProcessor : public juce::AudioProcessor
 {
@@ -87,8 +100,18 @@ private:
 
     juce::dsp::Gain<float> inputGain, outputGain;
 
-    // --- Gate ---
-    juce::dsp::NoiseGate<float> gate;
+    // --- Gate: implementación propia (no juce::dsp::NoiseGate) ---
+    // El NoiseGate de juce::dsp no tiene hold ni histéresis entre umbral de apertura
+    // y cierre, y en testing real eso producía un "pop" audible en modo Fast: el
+    // gate abría y cerraba varias veces seguidas justo en el ataque de una cuerda
+    // (chattering). Esta versión mantiene el gate abierto un mínimo de tiempo
+    // (`gateHoldSamples`) y usa un umbral de cierre más bajo que el de apertura
+    // (histéresis de 6dB), como un gate de hardware real.
+    static constexpr int gateMaxChannels = 2;
+    float gateEnvelope[gateMaxChannels] = {};
+    float gateGain[gateMaxChannels] = {};
+    int gateHoldCounter[gateMaxChannels] = {};
+    bool gateIsOpen[gateMaxChannels] = {};
 
     // --- Drive ---
     juce::dsp::WaveShaper<float> waveShaper;
@@ -96,7 +119,8 @@ private:
     // --- Tone: tilt EQ (low-shelf + high-shelf opuestos) + peak fijo para el mid-sweep ---
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> toneLowShelf, toneHighShelf, toneMidPeak;
 
-    // --- Cab: EQ fija en cadena (no es un cab-sim real con IR) ---
+    // --- Cab: EQ fija en cadena, doble pasada por filtro (pendiente más pronunciada,
+    // más parecido a la caída real de un speaker) — no es un cab-sim con IR ---
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> cabLowCut, cabHighCut, cabPresence;
 
     // --- Modulation: Chorus/Flanger comparten la misma clase con distintos

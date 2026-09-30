@@ -46,12 +46,17 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     setupFader(gateSlider, gateLabel, "Gate");
     setupFader(driveSlider, driveLabel, "Drive");
     setupFader(toneSlider, toneLabel, "Tone");
-    setupFader(cabSlider, cabLabel, "Cab");
     setupFader(modSlider, modLabel, "Mod");
     setupFader(spaceSlider, spaceLabel, "Space");
     setupFader(echoSlider, echoLabel, "Echo");
     setupFader(blendSlider, blendLabel, "Blend");
     setupFader(outputSlider, outputLabel, "Output");
+
+    // Cab no tiene fader (es on/off, ver PluginProcessor.h) — solo el label bracket.
+    cabLabel.setText("[ CAB ]", juce::dontSendNotification);
+    cabLabel.setJustificationType(juce::Justification::centred);
+    cabLabel.setColour(juce::Label::textColourId, DecimuColours::text);
+    addAndMakeVisible(cabLabel);
 
     setupKnob(toneMidKnob);
     setupKnob(modRateKnob);
@@ -79,6 +84,10 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     setupSelector(spaceModeSel, { "Room", "Plate", "Hall" }, ParamIDs::spaceMode);
     setupSelector(echoDivisionSel, { "Slap", "8th", "Quarter" }, ParamIDs::echoDivision);
 
+    // LEDs clickeables: on/off de todo el módulo (feedback directo de testing real).
+    for (auto* led : { &toneLedBtn, &modLedBtn, &spaceLedBtn, &echoLedBtn, &cabLedBtn })
+        addAndMakeVisible(led);
+
     addAndMakeVisible(bypassButton);
     addAndMakeVisible(tapTempoButton);
     tapTempoButton.onClick = [this] { processorRef.tapTempo(); };
@@ -96,7 +105,6 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     gateAttach   = std::make_unique<SliderAttachment>(apvts, ParamIDs::gateAmount, gateSlider);
     driveAttach  = std::make_unique<SliderAttachment>(apvts, ParamIDs::driveAmount, driveSlider);
     toneAttach   = std::make_unique<SliderAttachment>(apvts, ParamIDs::toneTilt, toneSlider);
-    cabAttach    = std::make_unique<SliderAttachment>(apvts, ParamIDs::cabAmount, cabSlider);
     modAttach    = std::make_unique<SliderAttachment>(apvts, ParamIDs::modAmount, modSlider);
     spaceAttach  = std::make_unique<SliderAttachment>(apvts, ParamIDs::spaceAmount, spaceSlider);
     echoAttach   = std::make_unique<SliderAttachment>(apvts, ParamIDs::echoAmount, echoSlider);
@@ -108,7 +116,12 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     spacePreDelayAttach  = std::make_unique<SliderAttachment>(apvts, ParamIDs::spacePreDelay, spacePreDelayKnob);
     echoFeedbackAttach   = std::make_unique<SliderAttachment>(apvts, ParamIDs::echoFeedback, echoFeedbackKnob);
 
-    bypassAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
+    bypassAttach       = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
+    toneEnabledAttach  = std::make_unique<ButtonAttachment>(apvts, ParamIDs::toneEnabled, toneLedBtn);
+    modEnabledAttach   = std::make_unique<ButtonAttachment>(apvts, ParamIDs::modEnabled, modLedBtn);
+    spaceEnabledAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::spaceEnabled, spaceLedBtn);
+    echoEnabledAttach  = std::make_unique<ButtonAttachment>(apvts, ParamIDs::echoEnabled, echoLedBtn);
+    cabEnabledAttach   = std::make_unique<ButtonAttachment>(apvts, ParamIDs::cabEnabled, cabLedBtn);
 
     setSize(1180, 560);
     setResizable(true, true);
@@ -138,10 +151,7 @@ void DecimulGuitarsEditor::paint(juce::Graphics& g)
     DecimuChrome::paintCompartment(g, blendCompRect.toFloat(), false, 8.0f);
     DecimuChrome::paintCompartment(g, outputCompRect.toFloat(), true, 8.0f);
 
-    DecimuChrome::paintLed(g, toneLedRect, DecimuColours::accentPrimary);
-    DecimuChrome::paintLed(g, modLedRect, DecimuColours::accentPrimary);
-    DecimuChrome::paintLed(g, spaceLedRect, DecimuColours::accentPrimary);
-    DecimuChrome::paintLed(g, echoLedRect, DecimuColours::accentPrimary);
+    // Los LEDs de Tone/Mod/Space/Echo/Cab ahora son DecimuLedButton (se pintan solos).
 
     auto logoArea = headerLogoArea;
     if (dogImage.isValid())
@@ -210,7 +220,7 @@ void DecimulGuitarsEditor::resized()
         slider.setBounds(col);
     };
 
-    auto layoutKnobModule = [&](juce::Rectangle<int> col, juce::Rectangle<float>& ledRectOut,
+    auto layoutKnobModule = [&](juce::Rectangle<int> col, DecimuLedButton& led,
                                  juce::Slider& knob, juce::Label& knobLabel,
                                  DecimuLedStackSelector& sel, juce::Slider& slider, juce::Label& label)
     {
@@ -219,7 +229,7 @@ void DecimulGuitarsEditor::resized()
         label.setBounds(labelArea);
 
         auto ledArea = col.removeFromTop(10);
-        ledRectOut = ledArea.withSizeKeepingCentre(8, 8).toFloat();
+        led.setBounds(ledArea.withSizeKeepingCentre(8, 8));
 
         auto knobArea = col.removeFromTop(52);
         knob.setBounds(knobArea.withSizeKeepingCentre(46, 46));
@@ -231,22 +241,38 @@ void DecimulGuitarsEditor::resized()
         slider.setBounds(col);
     };
 
+    // Cab: sin fader ni knob — LED + selector nada más, centrado en la columna.
+    auto layoutToggleModule = [&](juce::Rectangle<int> col, DecimuLedButton& led,
+                                   DecimuLedStackSelector& sel, juce::Label& label)
+    {
+        col = col.reduced(4);
+        auto labelArea = col.removeFromBottom(20);
+        label.setBounds(labelArea);
+
+        auto ledArea = col.removeFromTop(10);
+        led.setBounds(ledArea.withSizeKeepingCentre(8, 8));
+        col.removeFromTop(8);
+
+        auto selArea = col.removeFromTop(48);
+        sel.setBounds(selArea);
+    };
+
     layoutSimpleModule(mainArea.removeFromLeft(colW), gateModeSel, gateSlider, gateLabel);
     layoutSimpleModule(mainArea.removeFromLeft(colW), driveModeSel, driveSlider, driveLabel);
 
     toneCompRect = mainArea.removeFromLeft(colW);
-    layoutKnobModule(toneCompRect, toneLedRect, toneMidKnob, toneKnobLabel, toneModeSel, toneSlider, toneLabel);
+    layoutKnobModule(toneCompRect, toneLedBtn, toneMidKnob, toneKnobLabel, toneModeSel, toneSlider, toneLabel);
 
-    layoutSimpleModule(mainArea.removeFromLeft(colW), cabModeSel, cabSlider, cabLabel);
+    layoutToggleModule(mainArea.removeFromLeft(colW), cabLedBtn, cabModeSel, cabLabel);
 
     modCompRect = mainArea.removeFromLeft(colW);
-    layoutKnobModule(modCompRect, modLedRect, modRateKnob, modKnobLabel, modModeSel, modSlider, modLabel);
+    layoutKnobModule(modCompRect, modLedBtn, modRateKnob, modKnobLabel, modModeSel, modSlider, modLabel);
 
     spaceCompRect = mainArea.removeFromLeft(colW);
-    layoutKnobModule(spaceCompRect, spaceLedRect, spacePreDelayKnob, spaceKnobLabel, spaceModeSel, spaceSlider, spaceLabel);
+    layoutKnobModule(spaceCompRect, spaceLedBtn, spacePreDelayKnob, spaceKnobLabel, spaceModeSel, spaceSlider, spaceLabel);
 
     echoCompRect = mainArea;
-    layoutKnobModule(echoCompRect, echoLedRect, echoFeedbackKnob, echoKnobLabel, echoDivisionSel, echoSlider, echoLabel);
+    layoutKnobModule(echoCompRect, echoLedBtn, echoFeedbackKnob, echoKnobLabel, echoDivisionSel, echoSlider, echoLabel);
 
     {
         auto col = blendCompRect.reduced(8);

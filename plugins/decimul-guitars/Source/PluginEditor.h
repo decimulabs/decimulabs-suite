@@ -6,6 +6,7 @@
 #include <DecimuLedStackSelector.h>
 #include <DecimuLadderMeter.h>
 #include <DecimuVuArc.h>
+#include <DecimuLedButton.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /**
@@ -15,6 +16,12 @@
     sienta parte de la misma familia sin ser un clon idéntico. Layout de 7 módulos en
     el banco principal (Gate, Drive, Tone, Cab, Modulation, Space, Echo) en vez de los
     6 de Acoustic — ver SPEC.md.
+
+    Tras el primer testing real (feedback de un guitarrista probando el plugin):
+    los LEDs de Tone/Mod/Space/Echo (y ahora también Cab) son botones de verdad
+    (DecimuLedButton), no solo un indicador — apagan/prenden el módulo entero sin
+    tener que bajarle el fader a cero. Cab perdió su fader (ahora es on/off puro,
+    ver PluginProcessor.h para el porqué).
 */
 class DecimulGuitarsEditor : public juce::AudioProcessorEditor,
                               private juce::Timer
@@ -41,15 +48,17 @@ private:
     juce::Rectangle<int> topbarRect, inputCompRect, mainCompRect, blendCompRect, outputCompRect;
     juce::Rectangle<int> toneCompRect, modCompRect, spaceCompRect, echoCompRect;
     juce::Rectangle<int> headerLogoArea;
-    juce::Rectangle<float> toneLedRect, modLedRect, spaceLedRect, echoLedRect;
 
-    juce::Slider inputSlider, gateSlider, driveSlider, toneSlider, cabSlider,
+    juce::Slider inputSlider, gateSlider, driveSlider, toneSlider,
                  modSlider, spaceSlider, echoSlider, blendSlider, outputSlider;
     juce::Label inputLabel, gateLabel, driveLabel, toneLabel, cabLabel,
                 modLabel, spaceLabel, echoLabel, blendLabel, outputLabel;
 
     juce::Slider toneMidKnob, modRateKnob, spacePreDelayKnob, echoFeedbackKnob;
     juce::Label toneKnobLabel, modKnobLabel, spaceKnobLabel, echoKnobLabel;
+
+    // Botones LED (no solo indicador): apagan/prenden el módulo entero.
+    DecimuLedButton toneLedBtn, modLedBtn, spaceLedBtn, echoLedBtn, cabLedBtn;
 
     DecimuLedStackSelector gateModeSel, driveModeSel, toneModeSel, cabModeSel,
                             modModeSel, spaceModeSel, echoDivisionSel;
@@ -64,10 +73,11 @@ private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    std::unique_ptr<SliderAttachment> inputAttach, gateAttach, driveAttach, toneAttach, cabAttach,
+    std::unique_ptr<SliderAttachment> inputAttach, gateAttach, driveAttach, toneAttach,
                                        modAttach, spaceAttach, echoAttach, blendAttach, outputAttach,
                                        toneMidAttach, modRateAttach, spacePreDelayAttach, echoFeedbackAttach;
-    std::unique_ptr<ButtonAttachment> bypassAttach;
+    std::unique_ptr<ButtonAttachment> bypassAttach, toneEnabledAttach, modEnabledAttach,
+                                       spaceEnabledAttach, echoEnabledAttach, cabEnabledAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulGuitarsEditor)
 };
