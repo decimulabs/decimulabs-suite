@@ -39,6 +39,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulGuitarsProcessor::cre
         pid(ParamIDs::driveAmount), "Drive", pctRange, 0.0f, pctAttr));
     params.push_back(std::make_unique<AudioParameterChoice>(
         pid(ParamIDs::driveMode), "Drive Character", StringArray { "Tube", "Fuzz", "Boost" }, 0));
+    params.push_back(std::make_unique<AudioParameterBool>(
+        pid(ParamIDs::driveEnabled), "Drive Enabled", true));
 
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::toneTilt), "Tone", dbRange(-12.0f, 12.0f), 0.0f, dbAttr));
@@ -124,6 +126,9 @@ void DecimulGuitarsProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
         gateIsOpen[ch] = false;
     }
     waveShaper.prepare(spec);
+    driveOversampling.initProcessing((size_t) samplesPerBlock);
+    driveOversampling.reset();
+    setLatencySamples((int) std::ceil(driveOversampling.getLatencyInSamples()));
 
     toneLowShelf.prepare(spec);
     toneHighShelf.prepare(spec);
@@ -168,12 +173,15 @@ bool DecimulGuitarsProcessor::isBusesLayoutSupported(const BusesLayout& layouts)
 
 double DecimulGuitarsProcessor::getCurrentBpm() const
 {
-    if (auto* ph = getPlayHead())
+    if (hostSyncEnabled.load())
     {
-        if (auto position = ph->getPosition(); position.hasValue())
+        if (auto* ph = getPlayHead())
         {
-            if (auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 1.0)
-                return *bpm;
+            if (auto position = ph->getPosition(); position.hasValue())
+            {
+                if (auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 1.0)
+                    return *bpm;
+            }
         }
     }
     return (double) manualBpm.load();
@@ -282,10 +290,16 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
                                              - juce::Decibels::gainToDecibels(postMag)));
     }
 
-    // --- Drive ---
+    // --- Drive: pre-gain+waveshaper SIEMPRE pasan por oversampling 4x (ver nota en el
+    // .h) para que el pre-gain alto de Tube/Fuzz no aliasee. Sube/baja siempre (no solo
+    // con Drive activo) para que la latencia del plugin sea constante. ---
     {
+        juce::dsp::AudioBlock<float> block(buffer);
+        auto oversampledBlock = driveOversampling.processSamplesUp(block);
+
+        const bool enabled = apvts.getRawParameterValue(ParamIDs::driveEnabled)->load() > 0.5f;
         const float amount = apvts.getRawParameterValue(ParamIDs::driveAmount)->load() / 100.0f;
-        if (amount > 0.001f)
+        if (enabled && amount > 0.001f)
         {
             const int mode = (int) apvts.getRawParameterValue(ParamIDs::driveMode)->load();
             // Rango subido de +23dB a +40dB tope: con niveles típicos de guitarra
@@ -293,18 +307,32 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
             // de verdad (feedback de testing).
             const float preGainDb = amount * 40.0f;
             const float preGain = juce::Decibels::decibelsToGain(preGainDb);
+            const float postGain = 1.0f / std::sqrt(preGain);
 
             if (mode == 0)      waveShaper.functionToUse = [](float x) { return std::tanh(x); };
             else if (mode == 1) waveShaper.functionToUse = [](float x)
                                  { return x >= 0.0f ? 1.0f - std::exp(-x) : -1.0f + std::exp(x); };
             else                waveShaper.functionToUse = [](float x) { return std::tanh(x * 0.35f); };
 
-            buffer.applyGain(preGain);
-            juce::dsp::AudioBlock<float> block(buffer);
-            juce::dsp::ProcessContextReplacing<float> context(block);
-            waveShaper.process(context);
-            buffer.applyGain(1.0f / std::sqrt(preGain));
+            for (size_t ch = 0; ch < oversampledBlock.getNumChannels(); ++ch)
+            {
+                auto* data = oversampledBlock.getChannelPointer(ch);
+                for (size_t i = 0; i < oversampledBlock.getNumSamples(); ++i)
+                    data[i] *= preGain;
+            }
+
+            juce::dsp::ProcessContextReplacing<float> osContext(oversampledBlock);
+            waveShaper.process(osContext);
+
+            for (size_t ch = 0; ch < oversampledBlock.getNumChannels(); ++ch)
+            {
+                auto* data = oversampledBlock.getChannelPointer(ch);
+                for (size_t i = 0; i < oversampledBlock.getNumSamples(); ++i)
+                    data[i] *= postGain;
+            }
         }
+
+        driveOversampling.processSamplesDown(block);
     }
 
     // --- Tone: tilt EQ + mid-sweep peak fijo ---
@@ -429,12 +457,17 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
             if (mode == 2)
             {
-                // Depth/feedback subidos (antes 0.7/0.3): en testing el Phaser sonaba
-                // muy sutil, poco distinguible de los otros dos modos.
+                // Depth/feedback subidos de nuevo (antes 0.95/0.6) y centerFrequency
+                // subida de 700 a 1200Hz: en la segunda ronda de testing seguía sin
+                // notarse sobre la guitarra (sí sobre el ruido de fondo) — a 700Hz las
+                // muescas del phaser barrían por debajo de donde vive la mayoría de la
+                // energía armónica de una guitarra, así que casi no mordían señal real.
+                // Sigue siendo el Phaser de referencia de juce::dsp (cantidad de etapas
+                // fija, no configurable) — límite conocido, ver SPEC.md.
                 phaser.setRate(rateHz);
-                phaser.setDepth(0.95f);
-                phaser.setCentreFrequency(700.0f);
-                phaser.setFeedback(0.6f);
+                phaser.setDepth(1.0f);
+                phaser.setCentreFrequency(1200.0f);
+                phaser.setFeedback(0.75f);
                 phaser.setMix(1.0f);
                 phaser.process(context);
             }
@@ -529,6 +562,7 @@ void DecimulGuitarsProcessor::getStateInformation(juce::MemoryBlock& destData)
         if (auto xml = state.createXml())
         {
             xml->setAttribute("manualBpm", (double) manualBpm.load());
+            xml->setAttribute("hostSyncEnabled", hostSyncEnabled.load());
             copyXmlToBinary(*xml, destData);
         }
     }
@@ -539,6 +573,7 @@ void DecimulGuitarsProcessor::setStateInformation(const void* data, int sizeInBy
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
     {
         manualBpm.store((float) xml->getDoubleAttribute("manualBpm", 120.0));
+        hostSyncEnabled.store(xml->getBoolAttribute("hostSyncEnabled", true));
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
     }
 }

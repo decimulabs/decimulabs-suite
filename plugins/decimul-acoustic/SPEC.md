@@ -15,6 +15,23 @@ conocidas al inicio de `PluginProcessor.h`. El "look" (LookAndFeel + chrome +
 componentes) vive en [shared/](../../shared), no en este plugin — ver el README de la
 raíz del repo.
 
+## v0.3 — generalizado desde la 2da ronda de testing real de Guitars (2026-10-01)
+
+Guitars tuvo una segunda ronda de testing real; dos de los fixes generalizan directo
+acá (ver el changelog completo en
+[plugins/decimul-guitars/SPEC.md](../decimul-guitars/SPEC.md)):
+
+- **LEDs más grandes**: área clickeable subida de 10px a 22px (LED visible de 8px a
+  18px) — en Guitars costaba apuntar justo con el mouse en el tamaño anterior.
+- **Toggle de Host Sync** (`hostSyncButton`, UI, no parámetro APVTS): en Guitars, el
+  tester reportó que el BPM manual/Tap "no hacía nada" en Echo — es por diseño (el
+  host tiene prioridad si da un tempo válido), pero confuso. Ahora hay un switch "SYNC"
+  junto al BPM: on (default) = comportamiento de antes; off = fuerza el manual/Tap
+  aunque haya host. Se persiste en el estado del plugin.
+
+Los demás fixes de la 2da ronda de Guitars (Drive oversampled, `driveEnabled`, Phaser)
+no aplican acá: Acoustic no tiene Drive ni Phaser.
+
 ## v0.2 — generalizado desde el testing real de Guitars (2026-09-30)
 
 Guitars pasó por una ronda de testing real con guitarrista y salieron fixes que
@@ -91,8 +108,11 @@ propio en la UI todavía).
 gestos transitorios de UI (click o tipeo), no valores con sentido para automatizar
 desde una DAW. Viven como métodos públicos en `DecimulAcousticProcessor`; el BPM
 calculado se guarda igual en el estado del plugin (XML) para que sobreviva a cerrar/
-abrir la sesión. Cuando hay host con tempo válido, el host tiene prioridad sobre
-ambos — comportamiento esperado, confirmado en testing con Guitars.
+abrir la sesión. Por default, cuando hay host con tempo válido, el host tiene
+prioridad sobre ambos — comportamiento esperado, confirmado en testing con Guitars.
+El toggle **Host Sync** (`hostSyncEnabled`, v0.3, también UI no-APVTS) deja apagar esa
+prioridad para forzar el manual/Tap aunque haya host — generalizado desde Guitars,
+donde en dos rondas de testing seguidas esto generó confusión real.
 
 **Buses de entrada**: acepta mono→estéreo (mic/DI directo) además de estéreo→estéreo,
 igual que los dos componentes del CLA Unplugged original — ver `isBusesLayoutSupported`.

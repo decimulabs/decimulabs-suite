@@ -125,6 +125,14 @@ public:
 
     std::atomic<float> manualBpm { 120.0f };
 
+    /** Generalizado desde Guitars (2da ronda de testing real): el tempo manual/Tap
+        "no hacía nada" en Echo porque, con host activo, el tempo del host siempre
+        tiene prioridad — correcto por diseño, pero confuso si el usuario quiere forzar
+        un BPM propio con el host corriendo. Toggle de UI (no parámetro APVTS): on =
+        el host manda cuando da un tempo válido (comportamiento de antes); off =
+        manualBpm/Tap mandan siempre. Default: on. */
+    std::atomic<bool> hostSyncEnabled { true };
+
     // Meters de solo lectura para la UI (input/output peak, gain reduction, correlación).
     // Se actualizan en processBlock() y se leen desde el editor con un Timer.
     std::atomic<float> inputPeakDb { -100.0f };

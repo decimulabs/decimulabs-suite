@@ -84,6 +84,15 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     addAndMakeVisible(tapTempoButton);
     tapTempoButton.onClick = [this] { processorRef.tapTempo(); };
 
+    // Toggle de sync, generalizado desde Guitars (2da ronda de testing: "el BPM manual
+    // no influye en nada" — es porque el host manda cuando da un tempo válido; este
+    // switch deja forzar el manual/Tap). No es parámetro APVTS.
+    hostSyncButton.setTooltip("ON: el tempo del host manda cuando esta disponible (default). "
+                               "OFF: fuerza el BPM manual/TAP aunque haya host.");
+    hostSyncButton.setToggleState(processorRef.hostSyncEnabled.load(), juce::dontSendNotification);
+    hostSyncButton.onClick = [this] { processorRef.hostSyncEnabled.store(hostSyncButton.getToggleState()); };
+    addAndMakeVisible(hostSyncButton);
+
     // BPM editable: doble click para escribir a mano (alternativa al TAP, pedido en
     // testing — "no solo el tap"). Mismo alcance que TAP: fallback sin host, el host
     // (cuando da un tempo válido) manda por encima de esto.
@@ -219,6 +228,12 @@ void DecimulAcousticEditor::resized()
     auto mainArea = mainCompRect.reduced(8);
     const int colW = mainArea.getWidth() / 6;
 
+    // Tamaño de LED subido de 8x8 a 18x18 (área clickeable de 22px, antes 10px) —
+    // generalizado desde Guitars (2da ronda de testing: costaba apuntar justo con el
+    // mouse en el tamaño anterior).
+    constexpr int ledAreaH = 22;
+    constexpr int ledSize = 18;
+
     // Low/High/Dynamics: LED + selector + fader (sin knob).
     auto layoutSimpleModule = [&](juce::Rectangle<int> col, DecimuLedButton& led, DecimuLedStackSelector& sel,
                                    juce::Slider& slider, juce::Label& label)
@@ -227,9 +242,8 @@ void DecimulAcousticEditor::resized()
         auto labelArea = col.removeFromBottom(20);
         label.setBounds(labelArea);
 
-        auto ledArea = col.removeFromTop(10);
-        led.setBounds(ledArea.withSizeKeepingCentre(8, 8));
-        col.removeFromTop(4);
+        auto ledArea = col.removeFromTop(ledAreaH);
+        led.setBounds(ledArea.withSizeKeepingCentre(ledSize, ledSize));
 
         auto selArea = col.removeFromTop(48);
         sel.setBounds(selArea);
@@ -245,8 +259,8 @@ void DecimulAcousticEditor::resized()
         auto labelArea = col.removeFromBottom(20);
         label.setBounds(labelArea);
 
-        auto ledArea = col.removeFromTop(10);
-        led.setBounds(ledArea.withSizeKeepingCentre(8, 8));
+        auto ledArea = col.removeFromTop(ledAreaH);
+        led.setBounds(ledArea.withSizeKeepingCentre(ledSize, ledSize));
 
         auto knobArea = col.removeFromTop(52);
         knob.setBounds(knobArea.withSizeKeepingCentre(46, 46));
@@ -280,6 +294,8 @@ void DecimulAcousticEditor::resized()
         tapTempoButton.setBounds(tapArea);
         auto bpmArea = col.removeFromTop(16);
         bpmLabel.setBounds(bpmArea);
+        auto syncArea = col.removeFromTop(18);
+        hostSyncButton.setBounds(syncArea);
         auto labelArea = col.removeFromBottom(20);
         blendLabel.setBounds(labelArea);
         blendSlider.setBounds(col);

@@ -57,8 +57,10 @@ private:
     juce::Slider toneMidKnob, modRateKnob, spacePreDelayKnob, echoFeedbackKnob;
     juce::Label toneKnobLabel, modKnobLabel, spaceKnobLabel, echoKnobLabel;
 
-    // Botones LED (no solo indicador): apagan/prenden el módulo entero.
-    DecimuLedButton toneLedBtn, modLedBtn, spaceLedBtn, echoLedBtn, cabLedBtn;
+    // Botones LED (no solo indicador): apagan/prenden el módulo entero. driveLedBtn
+    // sumado en la 2da ronda de testing (Drive era el único módulo del core sin
+    // apagador propio).
+    DecimuLedButton driveLedBtn, toneLedBtn, modLedBtn, spaceLedBtn, echoLedBtn, cabLedBtn;
 
     DecimuLedStackSelector gateModeSel, driveModeSel, toneModeSel, cabModeSel,
                             modModeSel, spaceModeSel, echoDivisionSel;
@@ -66,6 +68,11 @@ private:
     juce::ToggleButton bypassButton;
     juce::TextButton tapTempoButton { "TAP" };
     juce::Label bpmLabel;
+
+    // Testing real (2da ronda): "el BPM manual no hace nada" — es por diseño cuando el
+    // host da un tempo válido (tiene prioridad). Este toggle deja forzar el manual/Tap
+    // por encima del host. No es parámetro APVTS (gesto de UI, como manualBpm).
+    juce::ToggleButton hostSyncButton { "SYNC" };
 
     DecimuLadderMeter inputMeter, outputMeter;
     DecimuVuArc vuArc;
@@ -76,7 +83,7 @@ private:
     std::unique_ptr<SliderAttachment> inputAttach, gateAttach, driveAttach, toneAttach,
                                        modAttach, spaceAttach, echoAttach, blendAttach, outputAttach,
                                        toneMidAttach, modRateAttach, spacePreDelayAttach, echoFeedbackAttach;
-    std::unique_ptr<ButtonAttachment> bypassAttach, toneEnabledAttach, modEnabledAttach,
+    std::unique_ptr<ButtonAttachment> bypassAttach, driveEnabledAttach, toneEnabledAttach, modEnabledAttach,
                                        spaceEnabledAttach, echoEnabledAttach, cabEnabledAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulGuitarsEditor)

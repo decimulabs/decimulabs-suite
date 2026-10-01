@@ -11,6 +11,7 @@ namespace ParamIDs
     static const juce::String gateMode      = "gateMode";
     static const juce::String driveAmount   = "driveAmount";
     static const juce::String driveMode     = "driveMode";
+    static const juce::String driveEnabled  = "driveEnabled";
     static const juce::String toneTilt      = "toneTilt";
     static const juce::String toneMode      = "toneMode";
     static const juce::String toneMidFreq   = "toneMidFreq";
@@ -96,6 +97,14 @@ public:
 
     std::atomic<float> manualBpm { 120.0f };
 
+    /** Testing real (segunda ronda): el tempo manual/Tap "no hacía nada" en Echo
+        porque, con host activo (Reaper), el tempo del host siempre tiene prioridad —
+        correcto por diseño, pero confuso si el usuario quiere forzar un BPM propio con
+        el host corriendo. Este toggle (UI, no parámetro APVTS) deja elegir: on = el
+        host manda cuando da un tempo válido (comportamiento de antes); off = manualBpm/
+        Tap mandan siempre, se ignora el host. Default: on. */
+    std::atomic<bool> hostSyncEnabled { true };
+
     std::atomic<float> inputPeakDb { -100.0f };
     std::atomic<float> outputPeakDb { -100.0f };
     std::atomic<float> gainReductionDb { 0.0f };
@@ -120,6 +129,13 @@ private:
     bool gateIsOpen[gateMaxChannels] = {};
 
     // --- Drive ---
+    // Oversampling 4x (dos pasadas half-band) SOLO para pre-gain+waveshaper: con hasta
+    // +40dB de pre-gain antes del shaper, procesar a la sample rate original generaba
+    // armónicos por encima de Nyquist que se "doblaban" (aliasing) — en testing real
+    // esto sonaba a ring-mod/sintetizador en vez de fuzz, sobre todo en Tube/Fuzz
+    // combinados con Cab (Combo/Stack). Subir y bajar siempre (no solo cuando Drive
+    // está activo) mantiene la latencia del plugin constante.
+    juce::dsp::Oversampling<float> driveOversampling { 2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, true };
     juce::dsp::WaveShaper<float> waveShaper;
 
     // --- Tone: tilt EQ (low-shelf + high-shelf opuestos) + peak fijo para el mid-sweep ---

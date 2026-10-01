@@ -71,6 +71,11 @@ private:
     juce::TextButton tapTempoButton { "TAP" };
     juce::Label bpmLabel; // editable: doble click para escribir el BPM manual a mano
 
+    // Generalizado desde Guitars (2da ronda de testing): "el BPM manual no hace nada"
+    // es por diseño cuando el host da un tempo válido (prioridad del host). Este
+    // toggle deja forzar el manual/Tap por encima del host. No es parámetro APVTS.
+    juce::ToggleButton hostSyncButton { "SYNC" };
+
     DecimuLadderMeter inputMeter, outputMeter;
     DecimuVuArc vuArc;
 

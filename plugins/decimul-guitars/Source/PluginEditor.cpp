@@ -85,12 +85,23 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     setupSelector(echoDivisionSel, { "Slap", "8th", "Quarter" }, ParamIDs::echoDivision);
 
     // LEDs clickeables: on/off de todo el módulo (feedback directo de testing real).
-    for (auto* led : { &toneLedBtn, &modLedBtn, &spaceLedBtn, &echoLedBtn, &cabLedBtn })
+    // driveLedBtn sumado en la 2da ronda (Drive era el único módulo del core sin
+    // apagador propio — reportado en testing).
+    for (auto* led : { &driveLedBtn, &toneLedBtn, &modLedBtn, &spaceLedBtn, &echoLedBtn, &cabLedBtn })
         addAndMakeVisible(led);
 
     addAndMakeVisible(bypassButton);
     addAndMakeVisible(tapTempoButton);
     tapTempoButton.onClick = [this] { processorRef.tapTempo(); };
+
+    // Toggle de sync (2da ronda de testing: "el BPM manual no influye en nada" — es
+    // porque el host manda cuando da un tempo válido; este switch deja forzar el
+    // manual/Tap). No es parámetro APVTS, se guarda directo en el processor.
+    hostSyncButton.setTooltip("ON: el tempo del host manda cuando esta disponible (default). "
+                               "OFF: fuerza el BPM manual/TAP aunque haya host.");
+    hostSyncButton.setToggleState(processorRef.hostSyncEnabled.load(), juce::dontSendNotification);
+    hostSyncButton.onClick = [this] { processorRef.hostSyncEnabled.store(hostSyncButton.getToggleState()); };
+    addAndMakeVisible(hostSyncButton);
 
     // BPM editable: doble click para escribir a mano (alternativa al TAP, pedido en
     // testing — "no solo el tap"). Mismo alcance que TAP: fallback sin host.
@@ -131,6 +142,7 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     echoFeedbackAttach   = std::make_unique<SliderAttachment>(apvts, ParamIDs::echoFeedback, echoFeedbackKnob);
 
     bypassAttach       = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
+    driveEnabledAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::driveEnabled, driveLedBtn);
     toneEnabledAttach  = std::make_unique<ButtonAttachment>(apvts, ParamIDs::toneEnabled, toneLedBtn);
     modEnabledAttach   = std::make_unique<ButtonAttachment>(apvts, ParamIDs::modEnabled, modLedBtn);
     spaceEnabledAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::spaceEnabled, spaceLedBtn);
@@ -234,6 +246,11 @@ void DecimulGuitarsEditor::resized()
         slider.setBounds(col);
     };
 
+    // Tamaño de LED subido de 8x8 a 18x18 (área clickeable de 22px, antes 10px): en
+    // testing real costaba apuntar justo con el mouse en el tamaño anterior.
+    constexpr int ledAreaH = 22;
+    constexpr int ledSize = 18;
+
     auto layoutKnobModule = [&](juce::Rectangle<int> col, DecimuLedButton& led,
                                  juce::Slider& knob, juce::Label& knobLabel,
                                  DecimuLedStackSelector& sel, juce::Slider& slider, juce::Label& label)
@@ -242,8 +259,8 @@ void DecimulGuitarsEditor::resized()
         auto labelArea = col.removeFromBottom(20);
         label.setBounds(labelArea);
 
-        auto ledArea = col.removeFromTop(10);
-        led.setBounds(ledArea.withSizeKeepingCentre(8, 8));
+        auto ledArea = col.removeFromTop(ledAreaH);
+        led.setBounds(ledArea.withSizeKeepingCentre(ledSize, ledSize));
 
         auto knobArea = col.removeFromTop(52);
         knob.setBounds(knobArea.withSizeKeepingCentre(46, 46));
@@ -263,16 +280,33 @@ void DecimulGuitarsEditor::resized()
         auto labelArea = col.removeFromBottom(20);
         label.setBounds(labelArea);
 
-        auto ledArea = col.removeFromTop(10);
-        led.setBounds(ledArea.withSizeKeepingCentre(8, 8));
+        auto ledArea = col.removeFromTop(ledAreaH);
+        led.setBounds(ledArea.withSizeKeepingCentre(ledSize, ledSize));
         col.removeFromTop(8);
 
         auto selArea = col.removeFromTop(48);
         sel.setBounds(selArea);
     };
 
+    // Drive: como layoutSimpleModule pero con LED arriba — sumado en 2da ronda de
+    // testing (Drive era el único módulo "core" sin apagador propio).
+    auto layoutSimpleModuleWithLed = [&](juce::Rectangle<int> col, DecimuLedButton& led,
+                                          DecimuLedStackSelector& sel, juce::Slider& slider, juce::Label& label)
+    {
+        col = col.reduced(4);
+        auto labelArea = col.removeFromBottom(20);
+        label.setBounds(labelArea);
+
+        auto ledArea = col.removeFromTop(ledAreaH);
+        led.setBounds(ledArea.withSizeKeepingCentre(ledSize, ledSize));
+
+        auto selArea = col.removeFromTop(48);
+        sel.setBounds(selArea);
+        slider.setBounds(col);
+    };
+
     layoutSimpleModule(mainArea.removeFromLeft(colW), gateModeSel, gateSlider, gateLabel);
-    layoutSimpleModule(mainArea.removeFromLeft(colW), driveModeSel, driveSlider, driveLabel);
+    layoutSimpleModuleWithLed(mainArea.removeFromLeft(colW), driveLedBtn, driveModeSel, driveSlider, driveLabel);
 
     toneCompRect = mainArea.removeFromLeft(colW);
     layoutKnobModule(toneCompRect, toneLedBtn, toneMidKnob, toneKnobLabel, toneModeSel, toneSlider, toneLabel);
@@ -294,6 +328,8 @@ void DecimulGuitarsEditor::resized()
         tapTempoButton.setBounds(tapArea);
         auto bpmArea = col.removeFromTop(16);
         bpmLabel.setBounds(bpmArea);
+        auto syncArea = col.removeFromTop(18);
+        hostSyncButton.setBounds(syncArea);
         auto labelArea = col.removeFromBottom(20);
         blendLabel.setBounds(labelArea);
         blendSlider.setBounds(col);

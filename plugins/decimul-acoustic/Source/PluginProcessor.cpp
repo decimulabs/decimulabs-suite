@@ -174,12 +174,15 @@ bool DecimulAcousticProcessor::isBusesLayoutSupported(const BusesLayout& layouts
 
 double DecimulAcousticProcessor::getCurrentBpm() const
 {
-    if (auto* ph = getPlayHead())
+    if (hostSyncEnabled.load())
     {
-        if (auto position = ph->getPosition(); position.hasValue())
+        if (auto* ph = getPlayHead())
         {
-            if (auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 1.0)
-                return *bpm;
+            if (auto position = ph->getPosition(); position.hasValue())
+            {
+                if (auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 1.0)
+                    return *bpm;
+            }
         }
     }
     return (double) manualBpm.load();
@@ -482,6 +485,7 @@ void DecimulAcousticProcessor::getStateInformation(juce::MemoryBlock& destData)
         if (auto xml = state.createXml())
         {
             xml->setAttribute("manualBpm", (double) manualBpm.load());
+            xml->setAttribute("hostSyncEnabled", hostSyncEnabled.load());
             copyXmlToBinary(*xml, destData);
         }
     }
@@ -492,6 +496,7 @@ void DecimulAcousticProcessor::setStateInformation(const void* data, int sizeInB
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
     {
         manualBpm.store((float) xml->getDoubleAttribute("manualBpm", 120.0));
+        hostSyncEnabled.store(xml->getBoolAttribute("hostSyncEnabled", true));
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
     }
 }
