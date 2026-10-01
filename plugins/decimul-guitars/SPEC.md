@@ -8,7 +8,7 @@ de los que tenía Acoustic (pensados para voz/instrumento acústico). Tema de ac
 **ámbar/dorado** (`DecimuAccentTheme::amberGold()`) en vez del cian/azul de Acoustic —
 misma familia visual, plugin distinto.
 
-## v0.3 — segunda ronda de testing real (2026-10-01)
+## v0.4 — segunda ronda de testing real (2026-10-01)
 
 Mismo tester, segunda pasada sobre la v0.2. Confirmó que el Gate ya no hace pop.
 Fixes de esta ronda:
@@ -85,7 +85,7 @@ Confirmado que **no son bugs** (documentado para no "arreglar" algo que ya funci
 bien): Tap Tempo no afecta nada en Echo cuando el host (DAW) da un tempo válido — el
 plugin prioriza correctamente el BPM del host sobre el manual, el tap es solo fallback
 para standalone. (Esto generó confusión real en dos rondas de testing seguidas — ver
-el toggle Host Sync en v0.3, que deja forzar el manual aunque haya host). Echo Feedback
+el toggle Host Sync en v0.4, que deja forzar el manual aunque haya host). Echo Feedback
 al 100% no diverge ni decae (ganancia exactamente unitaria en el loop) — es
 matemáticamente correcto, y sirve como efecto stutter.
 
@@ -140,7 +140,7 @@ de Space/Mod/Echo se escucha, nunca cuánto de Drive/Tone.
 + `bpmLabel` editable): mismo patrón que Acoustic — métodos del processor, no
 parámetros APVTS, para fallback de tempo sin host. Por default el host (cuando da un
 tempo válido) tiene prioridad sobre ambos; el toggle **Host Sync** (`hostSyncEnabled`,
-también UI no-APVTS, ver v0.3 arriba) deja apagar esa prioridad para forzar el manual/
+también UI no-APVTS, ver v0.4 arriba) deja apagar esa prioridad para forzar el manual/
 Tap aunque haya host.
 
 **Buses**: acepta mono→estéreo (DI/mic de amp) y estéreo→estéreo, igual que Acoustic.
@@ -157,7 +157,7 @@ otro DSP curado). Detalle por módulo:
   simétrico para Tube, exponencial asimétrico para Fuzz, tanh suave para Boost),
   hasta +40dB de pre-gain, + makeup gain aproximado (no calibrado por oído). Todo el
   pre-gain+shaping corre sobremuestreado 4x (`juce::dsp::Oversampling`, half-band
-  polyphase IIR) para evitar aliasing a pre-gain alto — ver v0.3. Agrega latencia
+  polyphase IIR) para evitar aliasing a pre-gain alto — ver v0.4. Agrega latencia
   reportada al plugin (compensada por el host via PDC).
 - **Tone**: tilt EQ (low-shelf + high-shelf opuestos) vía `juce::dsp::IIR` + un peak
   filter fijo para el mid-sweep.
@@ -173,7 +173,7 @@ otro DSP curado). Detalle por módulo:
 
 ## Próximo paso
 
-Otra ronda de testing con la v0.3 para confirmar que el aliasing de Drive/Cab quedó
+Otra ronda de testing con la v0.4 para confirmar que el aliasing de Drive/Cab quedó
 resuelto y que Host Sync resuelve la confusión del BPM. A más largo plazo: reemplazar
 Drive/Cab/Gate por DSP curado (Airwindows tiene saturadores; un cab sim real
 necesitaría impulse responses, que es un proyecto aparte), considerar un phaser propio
