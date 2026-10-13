@@ -53,6 +53,7 @@ escribir su propio DSP (`PluginProcessor`) y componer su propio layout de módul
 |---|---|---|
 | **DecimuLabs Acoustic** — multiefecto para voz/instrumentos acústicos | 🟢 DSP de referencia + UI completa | [plugins/decimul-acoustic](plugins/decimul-acoustic) |
 | **DecimuLabs Guitars** — multiefecto para guitarra eléctrica (Gate/Drive/Tone/Cab/Modulation/Space/Echo) | 🟢 DSP de referencia + UI completa, tema ámbar | [plugins/decimul-guitars](plugins/decimul-guitars) |
+| **DecimuLabs Versus (AB)** — comparador A/B de mezclas y masterings contra referencias, con volumen igualado por LUFS | 🟢 MVP funcionando + test de motor, tema violeta | [plugins/decimul-versus](plugins/decimul-versus) |
 | **Decimul SF2** — reproductor de soundfonts (sampler) | ⚪ pendiente | [plugins/sf2-player](plugins/sf2-player) |
 | **Bass / Drums / Vocals** (a definir) | ⚪ ideas abiertas, reusarían `shared/` | — |
 
