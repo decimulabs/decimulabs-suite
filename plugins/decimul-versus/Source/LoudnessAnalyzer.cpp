@@ -68,6 +68,7 @@ void LoudnessAnalyzer::reset()
     totalBlocks = 0;
     binEnergy.fill(0.0);
     binCount.fill(0);
+    shortTermBinCount.fill(0);
     momentaryLufs = shortTermLufs = -100.0f;
 
     if (shortTermLog != nullptr)
@@ -121,10 +122,58 @@ void LoudnessAnalyzer::finishBlock()
 
         const int n = std::min(totalBlocks, shortTermBlocks);
         shortTermLufs = (float) energyToLufs(meanOfLast(n));
+
+        // Para el LRA solo cuentan las ventanas de 3 s completas.
+        if (totalBlocks >= shortTermBlocks && shortTermLufs > -70.0f)
+        {
+            const int bin = std::clamp((int) std::floor(((double) shortTermLufs + 70.0) * 10.0), 0, numBins - 1);
+            ++shortTermBinCount[(size_t) bin];
+        }
     }
 
     if (shortTermLog != nullptr)
         shortTermLog->push_back(shortTermLufs);
+}
+
+float LoudnessAnalyzer::getLoudnessRange() const
+{
+    std::uint64_t n = 0;
+    double sumE = 0.0;
+    for (int i = 0; i < numBins; ++i)
+    {
+        const auto c = shortTermBinCount[(size_t) i];
+        if (c == 0)
+            continue;
+        const double lufs = -70.0 + ((double) i + 0.5) * 0.1;
+        sumE += (double) c * std::pow(10.0, (lufs + 0.691) / 10.0);
+        n += c;
+    }
+    if (n < 2)
+        return 0.0f;
+
+    const double relativeThreshold = energyToLufs(sumE / (double) n) - 20.0;
+    const int startBin = std::clamp((int) std::ceil((relativeThreshold + 70.0) * 10.0), 0, numBins - 1);
+
+    std::uint64_t gated = 0;
+    for (int i = startBin; i < numBins; ++i)
+        gated += shortTermBinCount[(size_t) i];
+    if (gated < 2)
+        return 0.0f;
+
+    auto percentile = [&](double p)
+    {
+        const auto target = (std::uint64_t) std::ceil(p * (double) gated);
+        std::uint64_t cumulative = 0;
+        for (int i = startBin; i < numBins; ++i)
+        {
+            cumulative += shortTermBinCount[(size_t) i];
+            if (cumulative >= std::max<std::uint64_t>(1, target))
+                return -70.0 + ((double) i + 0.5) * 0.1;
+        }
+        return -70.0;
+    };
+
+    return (float) std::max(0.0, percentile(0.95) - percentile(0.10));
 }
 
 float LoudnessAnalyzer::getIntegratedLufs() const

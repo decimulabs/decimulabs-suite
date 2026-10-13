@@ -77,8 +77,9 @@ private:
     float dragStartX = 0.0f, dragCurrentX = 0.0f;
 };
 
-/** Espectro promedio de largo plazo: mezcla vs. referencia (con el volumen igualado
-    aplicado), o la curva de diferencia por banda. */
+/** Espectro por bandas de 1/3 de octava: lado A vs. lado B (con el volumen igualado
+    aplicado), o la curva de diferencia por banda. Sirve igual para el promedio de largo
+    plazo y para el tiempo real: quien lo usa elige qué arreglos le pasa. */
 class VersusSpectrumView : public juce::Component
 {
 public:
@@ -86,7 +87,10 @@ public:
     {
         bool mixValid = false, refValid = false;
         std::array<float, VersusBands::numBands> mix {}, ref {};
-        float refGainDb = 0.0f;
+        float mixGainDb = 0.0f;     // ganancia aplicada al lado A (0 si es la mezcla)
+        float refGainDb = 0.0f;     // ganancia aplicada al lado B
+        juce::String mixName { "MEZCLA" }, refName { "REFERENCIA (volumen igualado)" };
+        juce::String emptyHint;
     };
 
     void setData(const Data& d) { data = d; repaint(); }
@@ -107,13 +111,14 @@ public:
     {
         bool mixValid = false, refValid = false;
         float mixLufsI = -100, mixLufsS = -100, refLufsI = -100, refLufsS = -100;
-        float mixPeak = -100, refPeak = -100;
+        float mixTruePeak = -100, refTruePeak = -100;
+        float mixLra = 0, refLra = 0;
         float mixWidth = 0, refWidth = 0;
         float mixCorr = 1, refCorr = 1;
         float gainAppliedDb = 0;
         bool gainLimited = false;
         bool matchAuto = true;
-        juce::String refName;
+        juce::String leftName { "MIX" }, rightName { "REF" };
     };
 
     void setData(const Data& d) { data = d; repaint(); }

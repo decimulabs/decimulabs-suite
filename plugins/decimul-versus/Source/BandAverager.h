@@ -2,6 +2,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 #include <array>
+#include <functional>
 #include <vector>
 
 namespace VersusBands
@@ -45,6 +46,12 @@ public:
     /** false si todavía no hubo ningún frame válido. */
     bool getAverageDb(std::array<float, VersusBands::numBands>& out) const;
     int getFrameCount() const { return frames; }
+
+    /** Si está seteado, se llama una vez por frame (cada `hopSize` samples) con los dB
+        de cada banda de ESE frame. `silent` = el frame se descartó del promedio por ser
+        casi silencio (las bandas valen -120). Corre en el hilo que llama a push(), así
+        que tiene que ser seguro para tiempo real si ese hilo es el de audio. */
+    std::function<void(const std::array<float, VersusBands::numBands>&, bool silent)> onFrame;
 
 private:
     void processFrame();

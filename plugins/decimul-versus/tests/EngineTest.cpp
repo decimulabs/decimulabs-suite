@@ -20,6 +20,30 @@ namespace
             ++failures;
     }
 
+    // Archivo estéreo con una función generadora (i = índice de muestra) por canal igual.
+    juce::File writeCustom(const juce::String& name, double sampleRate, double seconds,
+                           const std::function<float(int)>& gen)
+    {
+        auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile(name);
+        file.deleteFile();
+
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::FileOutputStream> stream(file.createOutputStream());
+        std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(stream.get(), sampleRate, 2u, 24, {}, 0));
+        stream.release();
+
+        const int n = (int) (seconds * sampleRate);
+        juce::AudioBuffer<float> buf(2, n);
+        for (int i = 0; i < n; ++i)
+        {
+            const float v = gen(i);
+            buf.setSample(0, i, v);
+            buf.setSample(1, i, v);
+        }
+        writer->writeFromAudioSampleBuffer(buf, 0, n);
+        return file;
+    }
+
     juce::File writeSine(const juce::String& name, double sampleRate, double freq, float peakDb, double seconds,
                          bool mono = false)
     {
@@ -196,6 +220,198 @@ int main()
     run(p, hostRate, 1000.0, -23.0f, 2.0);
     check(std::abs(p.appliedRefGainDb.load()) < 0.5f, "con match Off la ganancia es 0 dB",
           juce::String(p.appliedRefGainDb.load(), 2));
+
+    // ================= Funciones nuevas =================
+    constexpr double pi = juce::MathConstants<double>::pi;
+
+    // ---- True peak vs. pico de muestras ----
+    // Seno a fs/4 con fase 45 grados: las muestras valen +-0.707*A, el pico real es A.
+    {
+        const float amp = juce::Decibels::decibelsToGain(-1.0f);
+        const auto file = writeCustom("versus_test_tp.wav", hostRate, 3.0,
+                                      [&](int i) { return amp * (float) std::sin(2.0 * pi * 0.25 * i + pi / 4.0); });
+        p.loadReference(5, file);
+        check(waitForLoad(p, 5), "carga del seno a fs/4 (true peak)");
+        auto t = p.getTrack(5);
+        check(t != nullptr && std::abs(t->peakDb - (-4.0f)) < 0.3f, "pico de muestras ~ -4.0 dBFS",
+              t ? juce::String(t->peakDb, 2) : juce::String());
+        check(t != nullptr && std::abs(t->truePeakDb - (-1.0f)) < 0.4f, "true peak ~ -1.0 dBTP (lo que el pico de muestras no ve)",
+              t ? juce::String(t->truePeakDb, 2) : juce::String());
+    }
+
+    // ---- LRA ----
+    {
+        const float quiet = juce::Decibels::decibelsToGain(-30.0f), loud = juce::Decibels::decibelsToGain(-14.0f);
+        const auto file = writeCustom("versus_test_lra.wav", hostRate, 40.0, [&](int i)
+        {
+            const float a = i < (int) (20.0 * hostRate) ? quiet : loud;
+            return a * (float) std::sin(2.0 * pi * 1000.0 * i / hostRate);
+        });
+        p.loadReference(6, file);
+        check(waitForLoad(p, 6), "carga del archivo de dos niveles (LRA)");
+        auto t = p.getTrack(6);
+        check(t != nullptr && std::abs(t->loudnessRange - 16.0f) < 3.0f, "LRA de un salto de 16 dB ~ 16 LU",
+              t ? juce::String(t->loudnessRange, 2) : juce::String());
+        check(trackA->loudnessRange < 0.6f, "LRA de un tono estable ~ 0", juce::String(trackA->loudnessRange, 2));
+    }
+
+    // ---- Slot contra slot (A = slot 1, B = slot 3): ambos al nivel del más bajo ----
+    {
+        const auto loudFile = writeSine("versus_test_loud.wav", 44100.0, 1000.0, -4.0f, 12.0);   // -4 LUFS
+        p.loadReference(2, loudFile);
+        check(waitForLoad(p, 2), "carga de la referencia fuerte (slot 3)");
+
+        setParam(p, ParamIDs::matchMode, 0.0f);
+        setParam(p, ParamIDs::sourceA, 1.0f);   // A = slot 1 (-10 LUFS)
+        setParam(p, ParamIDs::slot, 3.0f);      // B = slot 3 (-4 LUFS)
+        setParam(p, ParamIDs::refActive, 0.0f);
+        p.seekSeconds(0.0);
+        const float aLevel = run(p, hostRate, 1000.0, -23.0f, 3.0);
+
+        setParam(p, ParamIDs::refActive, 1.0f);
+        run(p, hostRate, 1000.0, -23.0f, 1.5);
+        const float bLevel = run(p, hostRate, 1000.0, -23.0f, 2.0);
+
+        check(std::abs(aLevel - (-10.0f)) < 0.7f, "lado A (slot -10 LUFS) suena sin atenuar", juce::String(aLevel, 2));
+        check(std::abs(bLevel - (-10.0f)) < 0.7f, "lado B (slot -4 LUFS) se baja al nivel del más bajo",
+              juce::String(bLevel, 2) + " (ganancia " + juce::String(p.appliedRefGainDb.load(), 2) + ")");
+        check(std::abs(p.appliedRefGainDb.load() - (-6.0f)) < 0.7f, "ganancia aplicada a B ~ -6 dB",
+              juce::String(p.appliedRefGainDb.load(), 2));
+    }
+
+    // ---- ABX: X es A o B según el sorteo ----
+    {
+        setParam(p, ParamIDs::sourceA, 0.0f);   // A = mezcla del DAW
+        setParam(p, ParamIDs::slot, 1.0f);      // B = slot 1 (igualado a la mezcla)
+        setParam(p, ParamIDs::trim, 6.0f);      // B +6 dB para que A y B se distingan en el test
+        setParam(p, ParamIDs::abxMode, 1.0f);
+        p.abxReset();
+
+        p.seekSeconds(0.0);                      // la referencia venía de reproducirse hasta el final
+        p.abxForceXForTesting(true);
+        p.abxSetListen(2);
+        run(p, hostRate, 1000.0, -23.0f, 3.0);
+        const float xIsB = run(p, hostRate, 1000.0, -23.0f, 1.0);
+
+        p.abxForceXForTesting(false);
+        run(p, hostRate, 1000.0, -23.0f, 1.0);
+        const float xIsA = run(p, hostRate, 1000.0, -23.0f, 1.0);
+
+        check(std::abs(xIsB - (-17.0f)) < 0.8f, "ABX: con X = B suena la referencia (+6 dB de trim)", juce::String(xIsB, 2));
+        check(std::abs(xIsA - (-23.0f)) < 0.8f, "ABX: con X = A suena la mezcla", juce::String(xIsA, 2));
+
+        p.abxForceXForTesting(true);
+        p.abxAnswer(true);                       // acierta (X era B)
+        p.abxForceXForTesting(true);
+        p.abxAnswer(false);                      // falla
+        check(p.abxGetTotal() == 2 && p.abxGetCorrect() == 1, "ABX: el conteo de aciertos es 1 / 2",
+              juce::String(p.abxGetCorrect()) + " / " + juce::String(p.abxGetTotal()));
+
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor());
+            editor->setSize(1120, 790);
+            juce::MessageManager::getInstance()->runDispatchLoopUntil(400);
+
+            const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);
+            const auto out = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("versus_ui_abx.png");
+            out.deleteFile();
+            juce::PNGImageFormat png;
+            juce::FileOutputStream stream(out);
+            check(stream.openedOk() && png.writeImageToStream(image, stream), "snapshot de la UI en modo ABX",
+                  out.getFullPathName());
+        }
+
+        setParam(p, ParamIDs::abxMode, 0.0f);
+        setParam(p, ParamIDs::trim, 0.0f);
+    }
+
+    // ---- Alineación de secciones ----
+    {
+        // "Canción" de 30 s: 0-10 s tono grave suave, 10-20 s tono agudo fuerte (el "estribillo"),
+        // 20-30 s vuelve al grave suave.
+        const float soft = juce::Decibels::decibelsToGain(-30.0f), hard = juce::Decibels::decibelsToGain(-12.0f);
+        const auto song = writeCustom("versus_test_song.wav", hostRate, 30.0, [&](int i)
+        {
+            const double t = (double) i / hostRate;
+            if (t >= 10.0 && t < 20.0)
+                return hard * (float) std::sin(2.0 * pi * 3000.0 * t);
+            return soft * (float) std::sin(2.0 * pi * 200.0 * t);
+        });
+        p.loadReference(7, song);
+        check(waitForLoad(p, 7), "carga de la canción sintética de 30 s");
+
+        setParam(p, ParamIDs::slot, 8.0f);
+        setParam(p, ParamIDs::refActive, 0.0f);
+        setParam(p, ParamIDs::sourceA, 0.0f);
+        p.setUserPlaying(false);
+        p.resetMixAnalysis();
+        run(p, hostRate, 3000.0, -12.0f, 9.0);   // la mezcla está en su "estribillo"
+
+        juce::String report;
+        const bool ok = p.alignToMix(report);
+        const double where = p.getPlayheadSeconds();
+        check(ok, "alinear: encontró coincidencia", report);
+        check(where > 17.0 && where < 20.6, "alinear: el cabezal cae dentro de la sección fuerte (10-20 s)",
+              juce::String(where, 2) + " s");
+
+        juce::String silentReport;
+        p.resetMixAnalysis();
+        juce::AudioBuffer<float> silence(2, 512);
+        juce::MidiBuffer midi;
+        for (int b = 0; b < 400; ++b)   // ~4 s de silencio llena el anillo de frames vacíos
+        {
+            silence.clear();
+            p.processBlock(silence, midi);
+        }
+        check(!p.alignToMix(silentReport), "alinear: con la mezcla en silencio no inventa un resultado", silentReport);
+    }
+
+    // ---- Memoria: solo quedan residentes los slots en uso ----
+    {
+        for (int s = 0; s < DecimulVersusProcessor::numSlots; ++s)
+            if (!p.getSlotInfo(s).loaded)
+            {
+                p.loadReference(s, refA);
+                waitForLoad(p, s);
+            }
+
+        setParam(p, ParamIDs::slot, 1.0f);
+        setParam(p, ParamIDs::sourceA, 0.0f);
+        const auto until = juce::Time::getMillisecondCounter() + 2500;
+        while (juce::Time::getMillisecondCounter() < until)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil(50);
+
+        check(p.getResidentCount() <= DecimulVersusProcessor::maxResidentSlots,
+              "memoria: no hay más slots con audio que el máximo",
+              juce::String(p.getResidentCount()) + " residentes de 8");
+
+        int evicted = -1;
+        for (int s = 1; s < DecimulVersusProcessor::numSlots; ++s)
+            if (auto t = p.getTrack(s); t != nullptr && !t->hasAudio())
+            {
+                evicted = s;
+                break;
+            }
+        check(evicted >= 0, "memoria: algún slot soltó el audio pero conserva su análisis");
+
+        if (evicted >= 0)
+        {
+            auto lite = p.getTrack(evicted);
+            check(lite->frameCount > 0 && !lite->wavePeaks.empty() && lite->integratedLufs > -99.0f,
+                  "memoria: el slot liviano conserva forma de onda, frames y loudness");
+
+            setParam(p, ParamIDs::slot, (float) (evicted + 1));
+            const auto deadline = juce::Time::getMillisecondCounter() + 8000;
+            bool back = false;
+            while (juce::Time::getMillisecondCounter() < deadline && !back)
+            {
+                juce::MessageManager::getInstance()->runDispatchLoopUntil(100);
+                if (auto t = p.getTrack(evicted); t != nullptr && t->hasAudio())
+                    back = true;
+            }
+            check(back, "memoria: al elegir un slot liviano, su audio vuelve a cargarse solo");
+        }
+    }
 
     // ---- Estado: las rutas de las referencias sobreviven al guardado ----
     juce::MemoryBlock state;

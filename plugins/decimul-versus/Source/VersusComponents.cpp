@@ -166,6 +166,17 @@ void VersusWaveformView::paint(juce::Graphics& g)
 
     g.setColour(DecimuColours::text);
     g.drawVerticalLine((int) playX, 0.0f, b.getHeight());
+
+    // Aviso superpuesto (p. ej. "recargando el audio" de un slot que se había soltado).
+    if (status.isNotEmpty())
+    {
+        auto banner = b.withSizeKeepingCentre(std::min(b.getWidth(), 360.0f), 26.0f);
+        g.setColour(DecimuColours::background.withAlpha(0.85f));
+        g.fillRoundedRectangle(banner, 5.0f);
+        g.setColour(DecimuColours::accentPrimary);
+        g.setFont(hudFont(*this, 17.0f));
+        g.drawText(status, banner, juce::Justification::centred);
+    }
 }
 
 void VersusWaveformView::mouseDown(const juce::MouseEvent& e)
@@ -246,7 +257,8 @@ void VersusSpectrumView::paint(juce::Graphics& g)
     {
         g.setColour(DecimuColours::textMuted);
         g.setFont(hudFont(*this, 18.0f));
-        g.drawText("REPRODUCI LA MEZCLA Y/O UNA REFERENCIA PARA VER EL ESPECTRO PROMEDIO",
+        g.drawText(data.emptyHint.isNotEmpty() ? data.emptyHint
+                                               : juce::String("REPRODUCI LA MEZCLA Y/O UNA REFERENCIA PARA VER EL ESPECTRO"),
                    plot, juce::Justification::centred);
         return;
     }
@@ -285,7 +297,8 @@ void VersusSpectrumView::paint(juce::Graphics& g)
         for (int i = 0; i < nb; ++i)
         {
             const float diff = juce::jlimit(-range, range,
-                                            data.mix[(size_t) i] - (data.ref[(size_t) i] + data.refGainDb));
+                                            (data.mix[(size_t) i] + data.mixGainDb)
+                                                - (data.ref[(size_t) i] + data.refGainDb));
             g.setColour(diff >= 0.0f ? DecimuColours::accentRec : DecimuColours::accentSecondarySoft);
             const float h = std::abs(diff) * scale;
             g.fillRect(bandX(i) - barW * 0.5f, diff >= 0.0f ? zeroY - h : zeroY, barW, std::max(h, 1.0f));
@@ -297,7 +310,7 @@ void VersusSpectrumView::paint(juce::Graphics& g)
     float maxV = -200.0f;
     for (int i = 0; i < nb; ++i)
     {
-        if (data.mixValid) maxV = std::max(maxV, data.mix[(size_t) i]);
+        if (data.mixValid) maxV = std::max(maxV, data.mix[(size_t) i] + data.mixGainDb);
         if (data.refValid) maxV = std::max(maxV, data.ref[(size_t) i] + data.refGainDb);
     }
     const float top = std::ceil(maxV / 10.0f) * 10.0f + 5.0f;
@@ -341,7 +354,7 @@ void VersusSpectrumView::paint(juce::Graphics& g)
 
     if (data.mixValid)
     {
-        auto p = makePath(data.mix, 0.0f);
+        auto p = makePath(data.mix, data.mixGainDb);
         g.setColour(DecimuColours::accentPrimary);
         g.strokePath(p.createPathWithRoundedCorners(6.0f), juce::PathStrokeType(2.6f));
     }
@@ -350,9 +363,9 @@ void VersusSpectrumView::paint(juce::Graphics& g)
     g.setFont(hudFont(*this, 15.0f));
     auto legend = b.reduced(10.0f, 2.0f).removeFromTop(16.0f);
     g.setColour(DecimuColours::accentPrimary);
-    g.drawText("MEZCLA", legend.removeFromLeft(80.0f), juce::Justification::centredLeft);
+    g.drawText(data.mixName, legend.removeFromLeft(150.0f), juce::Justification::centredLeft);
     g.setColour(DecimuColours::text);
-    g.drawText("REFERENCIA (volumen igualado)", legend.removeFromLeft(260.0f), juce::Justification::centredLeft);
+    g.drawText(data.refName, legend.removeFromLeft(320.0f), juce::Justification::centredLeft);
 }
 
 // ============================== Metrics ==============================
@@ -373,9 +386,9 @@ void VersusMetricsView::paint(juce::Graphics& g)
     auto row = area.removeFromTop(rowH);
     row.removeFromLeft(labelW);
     g.setColour(DecimuColours::accentPrimary);
-    g.drawText("MIX", row.removeFromLeft(colW), juce::Justification::centredRight);
+    g.drawText(data.leftName, row.removeFromLeft(colW), juce::Justification::centredRight);
     g.setColour(DecimuColours::text);
-    g.drawText("REF", row.removeFromLeft(colW), juce::Justification::centredRight);
+    g.drawText(data.rightName, row.removeFromLeft(colW), juce::Justification::centredRight);
     g.setColour(DecimuColours::textMuted);
     g.drawText("DIFF", row.removeFromLeft(colW), juce::Justification::centredRight);
 
@@ -402,10 +415,11 @@ void VersusMetricsView::paint(juce::Graphics& g)
 
     addRow("LUFS-I", mI, data.mixLufsI, rI, data.refLufsI, 1);
     addRow("LUFS-S", mS, data.mixLufsS, rS, data.refLufsS, 1);
-    addRow("PEAK dB", data.mixValid && data.mixPeak > -99.0f, data.mixPeak,
-           data.refValid, data.refPeak, 1);
-    addRow("PLR dB", mI && data.mixPeak > -99.0f, data.mixPeak - data.mixLufsI,
-           rI, data.refPeak - data.refLufsI, 1);
+    addRow("TRUE PK", data.mixValid && data.mixTruePeak > -99.0f, data.mixTruePeak,
+           data.refValid && data.refTruePeak > -99.0f, data.refTruePeak, 1);
+    addRow("PLR dB", mI && data.mixTruePeak > -99.0f, data.mixTruePeak - data.mixLufsI,
+           rI && data.refTruePeak > -99.0f, data.refTruePeak - data.refLufsI, 1);
+    addRow("LRA LU", mI, data.mixLra, rI, data.refLra, 1);
     addRow("WIDTH %", data.mixValid, data.mixWidth, data.refValid, data.refWidth, 0);
     addRow("CORR", data.mixValid, data.mixCorr, data.refValid, data.refCorr, 2);
 
@@ -419,7 +433,7 @@ void VersusMetricsView::paint(juce::Graphics& g)
     else if (!data.matchAuto)
         gainLine = "IGUALADO APAGADO  (trim " + fmt(data.gainAppliedDb, 1, true) + " dB)";
     else
-        gainLine = "REF " + fmt(data.gainAppliedDb, 1, true) + " dB PARA IGUALAR A LA MEZCLA";
+        gainLine = data.rightName + " " + fmt(data.gainAppliedDb, 1, true) + " dB PARA IGUALAR VOLUMEN";
 
     g.drawFittedText(gainLine, area.removeFromTop(36.0f).toNearestInt(), juce::Justification::topLeft, 2);
 

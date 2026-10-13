@@ -14,6 +14,22 @@ namespace
         static const juce::StringArray exts { ".wav", ".aif", ".aiff", ".flac", ".mp3", ".ogg", ".m4a", ".wma" };
         return exts.contains(f.getFileExtension().toLowerCase());
     }
+
+    // P(X >= correct) para X ~ Binomial(total, 0.5): probabilidad de acertar tantas o más
+    // veces por puro azar. Es el criterio estándar de un test ABX.
+    double abxPValue(int correct, int total)
+    {
+        if (total <= 0)
+            return 1.0;
+
+        double p = 0.0;
+        for (int k = std::max(0, correct); k <= total; ++k)
+        {
+            const double logChoose = std::lgamma(total + 1.0) - std::lgamma(k + 1.0) - std::lgamma(total - k + 1.0);
+            p += std::exp(logChoose - total * std::log(2.0));
+        }
+        return std::min(1.0, p);
+    }
 }
 
 void DecimulVersusEditor::setupSelector(DecimuLedStackSelector& sel, const juce::StringArray& items,
@@ -40,6 +56,11 @@ void DecimulVersusEditor::setParam(const juce::String& id, float plainValue)
         param->setValueNotifyingHost(param->convertTo0to1(plainValue));
 }
 
+bool DecimulVersusEditor::isAbxOn() const
+{
+    return processorRef.apvts.getRawParameterValue(ParamIDs::abxMode)->load() > 0.5f;
+}
+
 DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     : juce::AudioProcessorEditor(&p), processorRef(p)
 {
@@ -48,6 +69,9 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
 
     wordmarkImage = juce::ImageFileFormat::loadFrom(BinaryData::wordmark_png, (size_t) BinaryData::wordmark_pngSize);
     dogImage = juce::ImageFileFormat::loadFrom(BinaryData::dog_png, (size_t) BinaryData::dog_pngSize);
+
+    liveMixSmooth.fill(-120.0f);
+    liveRefSmooth.fill(-120.0f);
 
     // ---- Slots ----
     for (int i = 0; i < DecimulVersusProcessor::numSlots; ++i)
@@ -72,6 +96,21 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     addAndMakeVisible(hostPill);
     addAndMakeVisible(loopPill);
 
+    alignPill.setClickingTogglesState(false);
+    alignPill.setTooltip("Busca en la referencia el tramo que mas se parece (en balance tonal y nivel) "
+                         "a los ultimos segundos de tu mezcla, y salta ahi.");
+    alignPill.onClick = [this]
+    {
+        juce::String report;
+        processorRef.alignToMix(report);
+        alignLabel.setText(report, juce::dontSendNotification);
+    };
+    addAndMakeVisible(alignPill);
+
+    alignLabel.setJustificationType(juce::Justification::centredLeft);
+    alignLabel.setColour(juce::Label::textColourId, DecimuColours::accentPrimary);
+    addAndMakeVisible(alignLabel);
+
     timeLabel.setJustificationType(juce::Justification::centredRight);
     timeLabel.setColour(juce::Label::textColourId, DecimuColours::textMuted);
     addAndMakeVisible(timeLabel);
@@ -86,9 +125,16 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     addAndMakeVisible(waveform);
 
     // ---- Análisis ----
-    diffPill.setClickingTogglesState(true);
-    diffPill.onClick = [this] { spectrum.setShowDiff(diffPill.getToggleState()); };
+    avgPill.setClickingTogglesState(false);
+    livePill.setClickingTogglesState(false);
+    diffPill.setClickingTogglesState(false);
+    avgPill.onClick = [this] { setSpectrumMode(SpectrumMode::average); };
+    livePill.onClick = [this] { setSpectrumMode(SpectrumMode::live); };
+    diffPill.onClick = [this] { setSpectrumMode(SpectrumMode::diff); };
+    addAndMakeVisible(avgPill);
+    addAndMakeVisible(livePill);
     addAndMakeVisible(diffPill);
+    avgPill.setToggleState(true, juce::dontSendNotification);
 
     resetPill.setClickingTogglesState(false);
     resetPill.onClick = [this] { processorRef.resetMixAnalysis(); };
@@ -97,16 +143,57 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     addAndMakeVisible(spectrum);
     addAndMakeVisible(metrics);
 
-    // ---- A / B ----
-    aPill.setEmphasis(true);
-    bPill.setEmphasis(true);
-    aPill.setClickingTogglesState(false);
-    bPill.setClickingTogglesState(false);
-    aPill.onClick = [this] { setParam(ParamIDs::refActive, 0.0f); };
-    bPill.onClick = [this] { setParam(ParamIDs::refActive, 1.0f); };
+    // ---- A / B / X ----
+    for (auto* pill : { &aPill, &bPill, &xPill })
+    {
+        pill->setEmphasis(true);
+        pill->setClickingTogglesState(false);
+    }
+    aPill.onClick = [this]
+    {
+        if (isAbxOn()) processorRef.abxSetListen(0);
+        else           setParam(ParamIDs::refActive, 0.0f);
+    };
+    bPill.onClick = [this]
+    {
+        if (isAbxOn()) processorRef.abxSetListen(1);
+        else           setParam(ParamIDs::refActive, 1.0f);
+    };
+    xPill.onClick = [this] { processorRef.abxSetListen(2); };
     addAndMakeVisible(aPill);
     addAndMakeVisible(bPill);
-    setupBracketLabel(abLabel, "ESCUCHAR  (teclas A / B, 1-8 = slot)");
+    addChildComponent(xPill);
+
+    abxPill.setTooltip("Test ciego: X es A o B al azar. Adivina cual es y mira cuantas acertas.");
+    addAndMakeVisible(abxPill);
+
+    ansAPill.setClickingTogglesState(false);
+    ansBPill.setClickingTogglesState(false);
+    abxResetPill.setClickingTogglesState(false);
+    ansAPill.onClick = [this] { processorRef.abxAnswer(false); };
+    ansBPill.onClick = [this] { processorRef.abxAnswer(true); };
+    abxResetPill.onClick = [this] { processorRef.abxReset(); };
+    addChildComponent(ansAPill);
+    addChildComponent(ansBPill);
+    addChildComponent(abxResetPill);
+
+    abxStatsLabel.setJustificationType(juce::Justification::centredLeft);
+    abxStatsLabel.setColour(juce::Label::textColourId, DecimuColours::text);
+    abxStatsLabel.setFont(juce::Font(juce::FontOptions(14.0f)));
+    addChildComponent(abxStatsLabel);
+
+    sourceALabel.setText("A =", juce::dontSendNotification);
+    sourceALabel.setJustificationType(juce::Justification::centredRight);
+    sourceALabel.setColour(juce::Label::textColourId, DecimuColours::textMuted);
+    addAndMakeVisible(sourceALabel);
+
+    sourceACombo.addItem("Mezcla del DAW", 1);
+    for (int i = 0; i < DecimulVersusProcessor::numSlots; ++i)
+        sourceACombo.addItem("Slot " + juce::String(i + 1), i + 2);
+    sourceACombo.setTooltip("Que suena en el lado A: tu mezcla, o un slot (para comparar dos versiones entre si).");
+    addAndMakeVisible(sourceACombo);
+
+    setupBracketLabel(abLabel, "ESCUCHAR   teclas A / B / X, 1-8 = slot B");
 
     // ---- Controles ----
     setupSelector(matchSel, { "Auto LUFS", "Off" }, ParamIDs::matchMode);
@@ -115,7 +202,7 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     setupBracketLabel(matchLabel, "MATCH");
     setupBracketLabel(monitorLabel, "MONITOR");
     setupBracketLabel(bandLabel, "BANDA");
-    setupBracketLabel(trimLabel, "TRIM REF");
+    setupBracketLabel(trimLabel, "TRIM B");
     setupBracketLabel(outputLabel, "OUTPUT");
 
     trimKnob.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
@@ -136,10 +223,12 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     bypassAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
     hostAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::followHost, hostPill);
     loopAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::loopEnabled, loopPill);
+    abxAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::abxMode, abxPill);
+    sourceAAttach = std::make_unique<ComboAttachment>(apvts, ParamIDs::sourceA, sourceACombo);
 
-    setSize(1120, 740);
+    setSize(1120, 790);
     setResizable(true, true);
-    setResizeLimits(960, 680, 1800, 1100);
+    setResizeLimits(960, 720, 1800, 1100);
     startTimerHz(30);
 }
 
@@ -154,6 +243,16 @@ DecimulVersusEditor::~DecimulVersusEditor()
 void DecimulVersusEditor::selectSlot(int slot)
 {
     setParam(ParamIDs::slot, (float) (slot + 1));
+}
+
+void DecimulVersusEditor::setSpectrumMode(SpectrumMode mode)
+{
+    spectrumMode = mode;
+    avgPill.setToggleState(mode == SpectrumMode::average, juce::dontSendNotification);
+    livePill.setToggleState(mode == SpectrumMode::live, juce::dontSendNotification);
+    diffPill.setToggleState(mode == SpectrumMode::diff, juce::dontSendNotification);
+    spectrum.setShowDiff(mode == SpectrumMode::diff);
+    resetPill.setEnabled(mode != SpectrumMode::live);
 }
 
 void DecimulVersusEditor::openFileChooser(int slot)
@@ -197,8 +296,9 @@ bool DecimulVersusEditor::keyPressed(const juce::KeyPress& key)
 {
     const auto c = juce::CharacterFunctions::toLowerCase(key.getTextCharacter());
 
-    if (c == 'a') { setParam(ParamIDs::refActive, 0.0f); return true; }
-    if (c == 'b') { setParam(ParamIDs::refActive, 1.0f); return true; }
+    if (c == 'a') { aPill.onClick(); return true; }
+    if (c == 'b') { bPill.onClick(); return true; }
+    if (c == 'x' && isAbxOn()) { processorRef.abxSetListen(2); return true; }
     if (c >= '1' && c <= '8') { selectSlot((int) (c - '1')); return true; }
 
     return false;
@@ -289,6 +389,52 @@ void DecimulVersusEditor::paint(juce::Graphics& g)
     g.drawText("decimulabs.com", footer, juce::Justification::centredRight);
 }
 
+void DecimulVersusEditor::layoutAbBox()
+{
+    const bool abx = isAbxOn();
+
+    auto col = abRect.reduced(10);
+    abLabel.setBounds(col.removeFromBottom(20));
+    col.removeFromBottom(4);
+
+    auto row1 = col.removeFromTop(62);
+    col.removeFromTop(6);
+    auto row2 = col.removeFromTop(30);
+    col.removeFromTop(6);
+    auto row3 = col.removeFromTop(40);
+
+    if (abx)
+    {
+        const int w = (row1.getWidth() - 16) / 3;
+        aPill.setBounds(row1.removeFromLeft(w));
+        row1.removeFromLeft(8);
+        bPill.setBounds(row1.removeFromLeft(w));
+        row1.removeFromLeft(8);
+        xPill.setBounds(row1);
+    }
+    else
+    {
+        const int w = (row1.getWidth() - 8) / 2;
+        aPill.setBounds(row1.removeFromLeft(w));
+        row1.removeFromLeft(8);
+        bPill.setBounds(row1);
+        xPill.setBounds({});
+    }
+
+    abxPill.setBounds(row2.removeFromLeft(150));
+    row2.removeFromLeft(8);
+    sourceALabel.setBounds(row2.removeFromLeft(34));
+    sourceACombo.setBounds(row2);
+
+    ansAPill.setBounds(row3.removeFromLeft(64).withTrimmedTop(6).withTrimmedBottom(4));
+    row3.removeFromLeft(6);
+    ansBPill.setBounds(row3.removeFromLeft(64).withTrimmedTop(6).withTrimmedBottom(4));
+    row3.removeFromLeft(8);
+    abxResetPill.setBounds(row3.removeFromRight(58).withTrimmedTop(6).withTrimmedBottom(4));
+    row3.removeFromRight(6);
+    abxStatsLabel.setBounds(row3);
+}
+
 void DecimulVersusEditor::resized()
 {
     auto content = getLocalBounds().reduced(22, 18);
@@ -306,10 +452,10 @@ void DecimulVersusEditor::resized()
     slotsRect = content.removeFromTop(62);
     content.removeFromTop(8);
 
-    auto controls = content.removeFromBottom(160);
+    auto controls = content.removeFromBottom(176);
     content.removeFromBottom(8);
 
-    waveRect = content.removeFromTop(176);
+    waveRect = content.removeFromTop(150);
     content.removeFromTop(8);
     analysisRect = content;
 
@@ -325,7 +471,7 @@ void DecimulVersusEditor::resized()
         }
     }
 
-    // ---- Forma de onda + transporte ----
+    // ---- Forma de onda + transporte + alineación ----
     {
         auto area = waveRect.reduced(8);
         auto strip = area.removeFromTop(30);
@@ -334,7 +480,11 @@ void DecimulVersusEditor::resized()
         hostPill.setBounds(strip.removeFromLeft(130));
         strip.removeFromLeft(6);
         loopPill.setBounds(strip.removeFromLeft(80));
-        timeLabel.setBounds(strip);
+        strip.removeFromLeft(16);
+        alignPill.setBounds(strip.removeFromLeft(170));
+        strip.removeFromLeft(8);
+        timeLabel.setBounds(strip.removeFromRight(230));
+        alignLabel.setBounds(strip);
         area.removeFromTop(6);
         waveform.setBounds(area);
     }
@@ -348,8 +498,11 @@ void DecimulVersusEditor::resized()
 
         auto strip = area.removeFromTop(28);
         resetPill.setBounds(strip.removeFromRight(170));
-        strip.removeFromRight(6);
-        diffPill.setBounds(strip.removeFromRight(90));
+        avgPill.setBounds(strip.removeFromLeft(110));
+        strip.removeFromLeft(6);
+        livePill.setBounds(strip.removeFromLeft(130));
+        strip.removeFromLeft(6);
+        diffPill.setBounds(strip.removeFromLeft(130));
         area.removeFromTop(6);
         spectrum.setBounds(area);
     }
@@ -371,16 +524,7 @@ void DecimulVersusEditor::resized()
         abRect = controls;
     }
 
-    {
-        auto col = abRect.reduced(10);
-        auto label = col.removeFromBottom(20);
-        abLabel.setBounds(label);
-        col.removeFromBottom(4);
-        auto left = col.removeFromLeft(col.getWidth() / 2 - 4);
-        col.removeFromLeft(8);
-        aPill.setBounds(left);
-        bPill.setBounds(col);
-    }
+    layoutAbBox();
 
     auto layoutSelector = [](juce::Rectangle<int> rect, DecimuLedStackSelector& sel,
                               juce::Label& label, int selectorHeight)
@@ -415,6 +559,8 @@ void DecimulVersusEditor::timerCallback()
 {
     auto& apvts = processorRef.apvts;
     const int slot = processorRef.getSelectedSlot();
+    const int srcA = processorRef.getSourceASlot();
+    const bool abx = isAbxOn();
 
     // ---- Slots ----
     for (int i = 0; i < DecimulVersusProcessor::numSlots; ++i)
@@ -429,9 +575,34 @@ void DecimulVersusEditor::timerCallback()
         slotButtons[(size_t) i]->setState(s);
     }
 
+    // Nombres de los slots en el selector de la fuente A.
+    {
+        juce::StringArray items;
+        for (int i = 0; i < DecimulVersusProcessor::numSlots; ++i)
+        {
+            const auto info = processorRef.getSlotInfo(i);
+            items.add(juce::String(i + 1) + ": " + (info.name.isNotEmpty() ? info.name : juce::String("(vacio)")));
+        }
+        if (items != lastSourceItems)
+        {
+            lastSourceItems = items;
+            for (int i = 0; i < items.size(); ++i)
+                sourceACombo.changeItemText(i + 2, items[i]);
+            sourceACombo.repaint();
+        }
+    }
+
     const auto info = processorRef.getSlotInfo(slot);
     auto track = processorRef.getTrack(slot);
     const bool trackOk = track != nullptr && info.loaded;
+
+    std::shared_ptr<const ReferenceTrack> trackA;
+    if (srcA >= 0)
+    {
+        trackA = processorRef.getTrack(srcA);
+        if (!processorRef.getSlotInfo(srcA).loaded)
+            trackA = nullptr;
+    }
 
     // ---- Forma de onda ----
     waveform.setTrack(trackOk ? track : nullptr);
@@ -439,6 +610,8 @@ void DecimulVersusEditor::timerCallback()
         waveform.setStatusText("CARGANDO Y ANALIZANDO...");
     else if (info.error.isNotEmpty())
         waveform.setStatusText("ERROR: " + info.error.toUpperCase());
+    else if (trackOk && !track->hasAudio())
+        waveform.setStatusText("RECARGANDO EL AUDIO...");
     else
         waveform.setStatusText({});
 
@@ -458,10 +631,51 @@ void DecimulVersusEditor::timerCallback()
     else
         timeLabel.setText({}, juce::dontSendNotification);
 
-    // ---- A / B ----
-    const bool b = apvts.getRawParameterValue(ParamIDs::refActive)->load() > 0.5f;
-    aPill.setToggleState(!b, juce::dontSendNotification);
-    bPill.setToggleState(b, juce::dontSendNotification);
+    // ---- A / B / X ----
+    if (abx != lastAbxOn)
+    {
+        lastAbxOn = abx;
+        xPill.setVisible(abx);
+        ansAPill.setVisible(abx);
+        ansBPill.setVisible(abx);
+        abxResetPill.setVisible(abx);
+        abxStatsLabel.setVisible(abx);
+        layoutAbBox();
+    }
+
+    if (abx)
+    {
+        const int listen = processorRef.abxGetListen();
+        aPill.setToggleState(listen == 0, juce::dontSendNotification);
+        bPill.setToggleState(listen == 1, juce::dontSendNotification);
+        xPill.setToggleState(listen == 2, juce::dontSendNotification);
+
+        const int correct = processorRef.abxGetCorrect();
+        const int total = processorRef.abxGetTotal();
+        juce::String stats;
+        if (total == 0)
+        {
+            stats = "Escucha A, B y X\ny decidi que es X";
+        }
+        else
+        {
+            const double p = abxPValue(correct, total);
+            stats = juce::String(correct) + "/" + juce::String(total) + "  p=" + juce::String(p, 3) + "\n";
+            if (total < 8)
+                stats += "faltan intentos (10+)";
+            else if (p < 0.05)
+                stats += "SE NOTA (p<0.05)";
+            else
+                stats += "no se distingue";
+        }
+        abxStatsLabel.setText(stats, juce::dontSendNotification);
+    }
+    else
+    {
+        const bool b = apvts.getRawParameterValue(ParamIDs::refActive)->load() > 0.5f;
+        aPill.setToggleState(!b, juce::dontSendNotification);
+        bPill.setToggleState(b, juce::dontSendNotification);
+    }
 
     // ---- Selectores ----
     matchSel.setSelectedIndex((int) apvts.getRawParameterValue(ParamIDs::matchMode)->load());
@@ -469,35 +683,129 @@ void DecimulVersusEditor::timerCallback()
     bandSel.setSelectedIndex((int) apvts.getRawParameterValue(ParamIDs::band)->load());
 
     // ---- Espectro ----
+    const bool aIsSlot = srcA >= 0 && trackA != nullptr;
+    const float gainBDb = processorRef.appliedRefGainDb.load();
+    const float gainADb = aIsSlot ? processorRef.appliedGainADb.load() : 0.0f;
+
     VersusSpectrumView::Data sd;
-    sd.mixValid = processorRef.mixBandsValid.load();
-    for (int i = 0; i < VersusBands::numBands; ++i)
-        sd.mix[(size_t) i] = processorRef.mixBandDb[(size_t) i].load();
-    sd.refValid = trackOk;
-    if (trackOk)
-        sd.ref = track->bandDb;
-    sd.refGainDb = processorRef.appliedRefGainDb.load();
+    sd.mixGainDb = gainADb;
+    sd.refGainDb = gainBDb;
+    sd.mixName = aIsSlot ? "A: " + trackA->displayName.substring(0, 22) : juce::String("MEZCLA");
+    sd.refName = trackOk ? "B: " + track->displayName.substring(0, 22) + "  (volumen igualado)"
+                         : juce::String("REFERENCIA");
+
+    if (spectrumMode == SpectrumMode::live)
+    {
+        // Lado A: la mezcla en vivo, o el frame del slot A en el cabezal.
+        bool aValid = false;
+        std::array<float, VersusBands::numBands> a {};
+        if (srcA < 0)
+        {
+            aValid = processorRef.mixLiveActive.load();
+            for (int i = 0; i < VersusBands::numBands; ++i)
+                a[(size_t) i] = processorRef.mixLiveDb[(size_t) i].load();
+        }
+        else if (aIsSlot)
+        {
+            if (auto* frame = trackA->frameAt(playhead))
+            {
+                aValid = true;
+                for (int i = 0; i < VersusBands::numBands; ++i)
+                    a[(size_t) i] = frame[i];
+            }
+        }
+
+        bool bValid = false;
+        std::array<float, VersusBands::numBands> bb {};
+        if (trackOk)
+        {
+            if (auto* frame = track->frameAt(playhead))
+            {
+                bValid = true;
+                for (int i = 0; i < VersusBands::numBands; ++i)
+                    bb[(size_t) i] = frame[i];
+            }
+        }
+
+        // Ataque inmediato, caída suave: se lee mejor que el parpadeo crudo.
+        auto smooth = [](std::array<float, VersusBands::numBands>& state,
+                         const std::array<float, VersusBands::numBands>& v, bool valid)
+        {
+            for (int i = 0; i < VersusBands::numBands; ++i)
+            {
+                const float target = valid ? v[(size_t) i] : -120.0f;
+                state[(size_t) i] = target > state[(size_t) i]
+                                        ? target
+                                        : state[(size_t) i] + (target - state[(size_t) i]) * 0.25f;
+            }
+        };
+        smooth(liveMixSmooth, a, aValid);
+        smooth(liveRefSmooth, bb, bValid);
+
+        sd.mixValid = aValid;
+        sd.refValid = bValid;
+        sd.mix = liveMixSmooth;
+        sd.ref = liveRefSmooth;
+        sd.emptyHint = "REPRODUCI PARA VER EL ESPECTRO EN TIEMPO REAL";
+    }
+    else
+    {
+        if (srcA < 0)
+        {
+            sd.mixValid = processorRef.mixBandsValid.load();
+            for (int i = 0; i < VersusBands::numBands; ++i)
+                sd.mix[(size_t) i] = processorRef.mixBandDb[(size_t) i].load();
+        }
+        else if (aIsSlot)
+        {
+            sd.mixValid = true;
+            sd.mix = trackA->bandDb;
+        }
+
+        sd.refValid = trackOk;
+        if (trackOk)
+            sd.ref = track->bandDb;
+        sd.emptyHint = "REPRODUCI LA MEZCLA Y/O CARGA UNA REFERENCIA PARA VER EL ESPECTRO PROMEDIO";
+    }
     spectrum.setData(sd);
 
     // ---- Medidas ----
     VersusMetricsView::Data md;
-    md.mixValid = processorRef.mixIntegratedLufs.load() > -99.0f || processorRef.mixBandsValid.load();
-    md.mixLufsI = processorRef.mixIntegratedLufs.load();
-    md.mixLufsS = processorRef.mixShortTermLufs.load();
-    md.mixPeak = processorRef.mixPeakDb.load();
-    md.mixWidth = processorRef.mixWidthPct.load();
-    md.mixCorr = processorRef.mixCorrelation.load();
+    md.leftName = aIsSlot ? "A" : "MIX";
+    md.rightName = aIsSlot ? "B" : "REF";
+
+    if (aIsSlot)
+    {
+        md.mixValid = true;
+        md.mixLufsI = trackA->integratedLufs;
+        md.mixLufsS = trackA->shortTermAt(playhead);
+        md.mixTruePeak = trackA->truePeakDb;
+        md.mixLra = trackA->loudnessRange;
+        md.mixWidth = trackA->widthPct;
+        md.mixCorr = trackA->correlation;
+    }
+    else
+    {
+        md.mixValid = processorRef.mixIntegratedLufs.load() > -99.0f || processorRef.mixBandsValid.load();
+        md.mixLufsI = processorRef.mixIntegratedLufs.load();
+        md.mixLufsS = processorRef.mixShortTermLufs.load();
+        md.mixTruePeak = processorRef.mixTruePeakDb.load();
+        md.mixLra = processorRef.mixLoudnessRange.load();
+        md.mixWidth = processorRef.mixWidthPct.load();
+        md.mixCorr = processorRef.mixCorrelation.load();
+    }
+
     md.refValid = trackOk;
     if (trackOk)
     {
         md.refLufsI = track->integratedLufs;
         md.refLufsS = track->shortTermAt(playhead);
-        md.refPeak = track->peakDb;
+        md.refTruePeak = track->truePeakDb;
+        md.refLra = track->loudnessRange;
         md.refWidth = track->widthPct;
         md.refCorr = track->correlation;
-        md.refName = track->displayName;
     }
-    md.gainAppliedDb = processorRef.appliedRefGainDb.load();
+    md.gainAppliedDb = gainBDb;
     md.gainLimited = processorRef.refGainLimitedByPeak.load();
     md.matchAuto = (int) apvts.getRawParameterValue(ParamIDs::matchMode)->load() == 0;
     metrics.setData(md);

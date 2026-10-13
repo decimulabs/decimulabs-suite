@@ -88,7 +88,15 @@ void BandAverager::processFrame()
     meanSquare /= (double) fftSize;
 
     if (meanSquare < 1.0e-7) // por debajo de ~-70 dBFS: silencio, no cuenta
+    {
+        if (onFrame)
+        {
+            std::array<float, VersusBands::numBands> silent;
+            silent.fill(-120.0f);
+            onFrame(silent, true);
+        }
         return;
+    }
 
     std::fill(fftData.begin() + fftSize, fftData.end(), 0.0f);
     window.multiplyWithWindowingTable(fftData.data(), (size_t) fftSize);
@@ -120,6 +128,14 @@ void BandAverager::processFrame()
     }
 
     ++frames;
+
+    if (onFrame)
+    {
+        std::array<float, VersusBands::numBands> db;
+        for (int b = 0; b < VersusBands::numBands; ++b)
+            db[(size_t) b] = (float) (10.0 * std::log10(std::max(framePower[(size_t) b], 1.0e-12)));
+        onFrame(db, false);
+    }
 }
 
 bool BandAverager::getAverageDb(std::array<float, VersusBands::numBands>& out) const

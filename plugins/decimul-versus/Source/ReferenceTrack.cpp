@@ -1,5 +1,6 @@
 #include "ReferenceTrack.h"
 #include "LoudnessAnalyzer.h"
+#include "TruePeakMeter.h"
 #include <algorithm>
 #include <cmath>
 
@@ -10,6 +11,40 @@ float ReferenceTrack::shortTermAt(double seconds) const
 
     const auto index = (size_t) std::clamp((int) std::floor(seconds * 10.0), 0, (int) shortTermLufs.size() - 1);
     return shortTermLufs[index];
+}
+
+const float* ReferenceTrack::frameAt(double seconds) const
+{
+    if (frameCount <= 0 || sampleRate <= 0.0)
+        return nullptr;
+
+    // El frame j cubre [j*hop, j*hop + window): el que está centrado en `seconds`.
+    const double centreSample = seconds * sampleRate;
+    const int j = std::clamp((int) std::floor((centreSample - frameWindow * 0.5) / frameHop + 0.5),
+                             0, frameCount - 1);
+    return frameDb.data() + (size_t) j * VersusBands::numBands;
+}
+
+std::shared_ptr<ReferenceTrack> ReferenceTrack::makeLite() const
+{
+    auto lite = std::make_shared<ReferenceTrack>();
+    lite->file = file;
+    lite->displayName = displayName;
+    lite->sampleRate = sampleRate;
+    lite->lengthSeconds = lengthSeconds;
+    lite->truncated = truncated;
+    lite->integratedLufs = integratedLufs;
+    lite->loudnessRange = loudnessRange;
+    lite->peakDb = peakDb;
+    lite->truePeakDb = truePeakDb;
+    lite->widthPct = widthPct;
+    lite->correlation = correlation;
+    lite->shortTermLufs = shortTermLufs;
+    lite->bandDb = bandDb;
+    lite->wavePeaks = wavePeaks;
+    lite->frameDb = frameDb;
+    lite->frameCount = frameCount;
+    return lite;   // audio vacío a propósito
 }
 
 std::shared_ptr<ReferenceTrack> ReferenceTrack::load(const juce::File& file,
@@ -135,6 +170,20 @@ std::shared_ptr<ReferenceTrack> ReferenceTrack::load(const juce::File& file,
     }
 
     track->peakDb = juce::Decibels::gainToDecibels(peak, -100.0f);
+
+    // --- True peak (4x, BS.1770-4) ---
+    {
+        TruePeakMeter truePeak;
+        float tp = 0.0f;
+        const int block = 8192;
+        for (int pos = 0; pos < length; pos += block)
+        {
+            if (shouldCancel())
+                return nullptr;
+            tp = std::max(tp, truePeak.process(left + pos, right + pos, std::min(block, length - pos)));
+        }
+        track->truePeakDb = juce::Decibels::gainToDecibels(std::max(tp, peak), -100.0f);
+    }
     track->widthPct = (sumM + sumS) > 0.0 ? (float) (100.0 * sumS / (sumM + sumS)) : 0.0f;
     track->correlation = (sumLL > 0.0 && sumRR > 0.0) ? (float) (sumLR / std::sqrt(sumLL * sumRR)) : 1.0f;
 
@@ -152,12 +201,20 @@ std::shared_ptr<ReferenceTrack> ReferenceTrack::load(const juce::File& file,
             loudness.process(left + pos, right + pos, std::min(block, length - pos));
         }
         track->integratedLufs = loudness.getIntegratedLufs();
+        track->loudnessRange = loudness.getLoudnessRange();
     }
 
     // --- Espectro promedio ---
     {
         BandAverager bands;
         bands.prepare(targetSampleRate);
+
+        // Espectro de cada frame, para el analizador en tiempo real y la alineación.
+        bands.onFrame = [&track](const std::array<float, VersusBands::numBands>& db, bool)
+        {
+            track->frameDb.insert(track->frameDb.end(), db.begin(), db.end());
+            ++track->frameCount;
+        };
 
         std::vector<float> mono((size_t) 8192);
         for (int pos = 0; pos < length; pos += 8192)

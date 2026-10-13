@@ -26,6 +26,10 @@ public:
     float getMomentaryLufs() const { return momentaryLufs; }   // ventana 400ms
     float getShortTermLufs() const { return shortTermLufs; }   // ventana 3s
 
+    /** Rango de loudness (LRA, EBU Tech 3342) en LU: percentil 95 - percentil 10 de los
+        short-term con gating (absoluto -70, relativo -20 LU). 0 si hay pocos datos. */
+    float getLoudnessRange() const;
+
     /** Si no es nullptr, en cada bloque de 100ms se agrega el short-term acá
         (para armar la curva de loudness en el tiempo de una referencia). */
     std::vector<float>* shortTermLog = nullptr;
@@ -63,6 +67,7 @@ private:
 
     std::array<double, numBins> binEnergy {};
     std::array<std::uint32_t, numBins> binCount {};
+    std::array<std::uint32_t, numBins> shortTermBinCount {};   // para el LRA
 
     float momentaryLufs = -100.0f;
     float shortTermLufs = -100.0f;
