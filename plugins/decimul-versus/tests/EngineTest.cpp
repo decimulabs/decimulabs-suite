@@ -124,9 +124,132 @@ namespace
     }
 }
 
-int main()
+namespace
+{
+    // Ruido rosa (Paul Kellet) con secciones de distinto nivel y un balance tonal
+    // ajustable: sirve para sacar una captura de la UI con curvas y formas de onda
+    // que se parezcan a música real, en vez de senos puros.
+    struct PinkNoise
+    {
+        float b0 = 0.0f, b1 = 0.0f, b2 = 0.0f;
+        float next(float white)
+        {
+            b0 = 0.99765f * b0 + white * 0.0990460f;
+            b1 = 0.96300f * b1 + white * 0.2965164f;
+            b2 = 0.57000f * b2 + white * 1.0526913f;
+            return (b0 + b1 + b2 + white * 0.1848f) * 0.25f;
+        }
+    };
+
+    juce::File writeScene(const juce::String& name, double sampleRate, double seconds,
+                          float level, float brightness, float sectionContrast, int seed)
+    {
+        auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile(name);
+        file.deleteFile();
+
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::FileOutputStream> stream(file.createOutputStream());
+        std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(stream.get(), sampleRate, 2u, 24, {}, 0));
+        stream.release();
+
+        const int n = (int) (seconds * sampleRate);
+        juce::AudioBuffer<float> buf(2, n);
+        juce::Random rng(seed);
+        PinkNoise pinkL, pinkR;
+        float hpL = 0.0f, hpR = 0.0f;
+
+        for (int i = 0; i < n; ++i)
+        {
+            const double t = (double) i / sampleRate;
+            const float section = ((int) (t / 7.0) % 2 == 0) ? 1.0f : sectionContrast;   // estrofa / estribillo
+            const float beat = 0.75f + 0.25f * (float) std::pow(std::sin(juce::MathConstants<double>::pi * t * 2.0), 2.0);
+
+            const float wl = rng.nextFloat() * 2.0f - 1.0f, wr = rng.nextFloat() * 2.0f - 1.0f;
+            float l = pinkL.next(wl), r = pinkR.next(wr);
+
+            // Brillo: suma un poco del ruido blanco filtrado en agudos.
+            hpL += 0.2f * (wl - hpL);
+            hpR += 0.2f * (wr - hpR);
+            l += brightness * (wl - hpL) * 0.5f;
+            r += brightness * (wr - hpR) * 0.5f;
+
+            const float amp = level * section * beat;
+            buf.setSample(0, i, juce::jlimit(-1.0f, 1.0f, l * amp));
+            buf.setSample(1, i, juce::jlimit(-1.0f, 1.0f, r * amp));
+        }
+
+        writer->writeFromAudioSampleBuffer(buf, 0, n);
+        return file;
+    }
+}
+
+int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+
+    // Modo captura: `VersusEngineTest.exe --screenshot ruta.png` arma una escena de
+    // demostración con la UI llena y la guarda, sin correr los tests.
+    if (argc >= 3 && juce::String(argv[1]) == "--screenshot")
+    {
+        constexpr double rate = 48000.0;
+        const auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("versus_scene");
+        dir.createDirectory();
+
+        const auto v1 = writeScene("Mi mezcla v1.wav", rate, 42.0, 0.55f, 0.20f, 0.55f, 1);
+        const auto v2 = writeScene("Mi mezcla v2.wav", rate, 42.0, 0.62f, 0.45f, 0.60f, 2);
+        const auto r1 = writeScene("Referencia - Tema A.wav", rate, 48.0, 1.05f, 0.80f, 0.85f, 3);
+        const auto r2 = writeScene("Referencia - Tema B.wav", rate, 48.0, 0.85f, 0.35f, 0.70f, 4);
+
+        DecimulVersusProcessor p;
+        p.setRateAndBufferSizeDetails(rate, 512);
+        p.prepareToPlay(rate, 512);
+
+        const juce::File files[] = { v1, v2, r1, r2 };
+        for (int i = 0; i < 4; ++i)
+        {
+            p.loadReference(i, files[i]);
+            if (!waitForLoad(p, i))
+                return 2;
+        }
+
+        setParam(p, ParamIDs::slot, 3.0f);
+        setParam(p, ParamIDs::refActive, 1.0f);
+        p.seekSeconds(9.0);
+        p.setUserPlaying(true);
+        p.setLoopRegion(2, 8.0, 21.0);
+        setParam(p, ParamIDs::loopEnabled, 1.0f);
+
+        // La "mezcla" del DAW: ruido rosa parecido a la v1.
+        {
+            constexpr int block = 512;
+            juce::AudioBuffer<float> buf(2, block);
+            juce::MidiBuffer midi;
+            juce::Random rng(99);
+            PinkNoise pl, pr;
+            for (int b = 0; b < (int) (14.0 * rate / block); ++b)
+            {
+                const double t = (double) b * block / rate;
+                const float section = ((int) (t / 7.0) % 2 == 0) ? 1.0f : 0.55f;
+                for (int i = 0; i < block; ++i)
+                {
+                    buf.setSample(0, i, 0.50f * section * pl.next(rng.nextFloat() * 2.0f - 1.0f));
+                    buf.setSample(1, i, 0.50f * section * pr.next(rng.nextFloat() * 2.0f - 1.0f));
+                }
+                p.processBlock(buf, midi);
+            }
+        }
+
+        std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor());
+        editor->setSize(1120, 790);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(600);
+
+        const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);
+        const juce::File out(argv[2]);
+        out.deleteFile();
+        juce::PNGImageFormat png;
+        juce::FileOutputStream stream(out);
+        return (stream.openedOk() && png.writeImageToStream(image, stream)) ? 0 : 1;
+    }
 
     constexpr double hostRate = 48000.0;
 

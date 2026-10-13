@@ -20,7 +20,12 @@ namespace
 
     juce::String fmt(float v, int decimals = 1, bool signedValue = false)
     {
-        juce::String s = juce::String(v, decimals);
+        // Evita "-0.0" y "-0.00" cuando el valor redondea a cero.
+        if (std::abs(v) < 0.5f * std::pow(10.0f, -(float) decimals))
+            v = 0.0f;
+
+        // OJO: juce::String(float, 0) no redondea a entero, imprime con todos los decimales.
+        juce::String s = decimals <= 0 ? juce::String(juce::roundToInt(v)) : juce::String(v, decimals);
         if (signedValue && v > 0.0f)
             s = "+" + s;
         return s;
