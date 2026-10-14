@@ -10,17 +10,17 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /**
-    UI de DecimuLabs Pump. Mismo chasis que el resto de la suite (shared/) con acento
+    UI de DecimuLabs Gap. Mismo chasis que el resto de la suite (shared/) con acento
     verde lima. La pieza central es el editor de la curva; a la derecha, los controles
     de profundidad/tiempo y, abajo, el modo de disparo (Sync / MIDI / Audio) con sus
     parámetros, y la banda sobre la que actúa el bombeo (Full / Low / High).
 */
-class DecimulPumpEditor : public juce::AudioProcessorEditor,
+class DecimulGapEditor : public juce::AudioProcessorEditor,
                            private juce::Timer
 {
 public:
-    explicit DecimulPumpEditor(DecimulPumpProcessor&);
-    ~DecimulPumpEditor() override;
+    explicit DecimulGapEditor(DecimulGapProcessor&);
+    ~DecimulGapEditor() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -40,13 +40,13 @@ private:
     void refreshCurveFromProcessor();
     void applyPreset(int presetIndex);
 
-    DecimulPumpProcessor& processorRef;
+    DecimulGapProcessor& processorRef;
     DecimuLookAndFeel lookAndFeel { DecimuAccentTheme::limeGreen() };
 
     juce::Image wordmarkImage, dogImage;
     juce::Rectangle<int> topbarRect, curveRect, knobsRect, triggerRect, outputRect, headerLogoArea;
 
-    PumpCurveEditor curveEditor;
+    GapCurveEditor curveEditor;
     juce::ComboBox presetCombo, rateCombo;
     juce::Label presetLabel, rateLabel;
     juce::TextButton prevPresetButton { "<" }, nextPresetButton { ">" };
@@ -74,5 +74,5 @@ private:
     int lastCurveVersion = -1;
     bool updatingPresetCombo = false;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulPumpEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulGapEditor)
 };

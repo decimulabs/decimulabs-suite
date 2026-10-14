@@ -1,13 +1,13 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
 
-void DecimulPumpEditor::setParam(const juce::String& id, float plainValue)
+void DecimulGapEditor::setParam(const juce::String& id, float plainValue)
 {
     if (auto* param = processorRef.apvts.getParameter(id))
         param->setValueNotifyingHost(param->convertTo0to1(plainValue));
 }
 
-void DecimulPumpEditor::addKnob(Knob& k, const juce::String& paramID, const juce::String& caption)
+void DecimulGapEditor::addKnob(Knob& k, const juce::String& paramID, const juce::String& caption)
 {
     k.slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 16);
@@ -22,7 +22,7 @@ void DecimulPumpEditor::addKnob(Knob& k, const juce::String& paramID, const juce
     k.attachment = std::make_unique<SliderAttachment>(processorRef.apvts, paramID, k.slider);
 }
 
-DecimulPumpEditor::DecimulPumpEditor(DecimulPumpProcessor& p)
+DecimulGapEditor::DecimulGapEditor(DecimulGapProcessor& p)
     : juce::AudioProcessorEditor(&p), processorRef(p)
 {
     setLookAndFeel(&lookAndFeel);
@@ -32,7 +32,7 @@ DecimulPumpEditor::DecimulPumpEditor(DecimulPumpProcessor& p)
 
     // ---- Curva ----
     curveEditor.setCurve(processorRef.getCurve());
-    curveEditor.onCurveChanged = [this](const PumpCurve& c)
+    curveEditor.onCurveChanged = [this](const GapCurve& c)
     {
         processorRef.setCurve(c, -1);
         lastCurveVersion = processorRef.getCurveVersion();
@@ -43,8 +43,8 @@ DecimulPumpEditor::DecimulPumpEditor(DecimulPumpProcessor& p)
     addAndMakeVisible(curveEditor);
 
     presetCombo.addItem("Custom", 1);
-    for (int i = 0; i < PumpCurve::numPresets(); ++i)
-        presetCombo.addItem(PumpCurve::presetName(i), i + 2);
+    for (int i = 0; i < GapCurve::numPresets(); ++i)
+        presetCombo.addItem(GapCurve::presetName(i), i + 2);
     presetCombo.onChange = [this]
     {
         if (updatingPresetCombo)
@@ -57,7 +57,7 @@ DecimulPumpEditor::DecimulPumpEditor(DecimulPumpProcessor& p)
 
     auto stepPreset = [this](int delta)
     {
-        const int count = PumpCurve::numPresets();
+        const int count = GapCurve::numPresets();
         int current = processorRef.getPresetIndex();
         current = current < 0 ? (delta > 0 ? -1 : 0) : current;
         applyPreset((current + delta + count) % count);
@@ -76,8 +76,8 @@ DecimulPumpEditor::DecimulPumpEditor(DecimulPumpProcessor& p)
         addAndMakeVisible(*l);
     }
 
-    for (int i = 0; i < DecimulPumpProcessor::numRates(); ++i)
-        rateCombo.addItem(DecimulPumpProcessor::rateName(i), i + 1);
+    for (int i = 0; i < DecimulGapProcessor::numRates(); ++i)
+        rateCombo.addItem(DecimulGapProcessor::rateName(i), i + 1);
     addAndMakeVisible(rateCombo);
     rateAttach = std::make_unique<ComboAttachment>(processorRef.apvts, ParamIDs::rate, rateCombo);
 
@@ -105,10 +105,8 @@ DecimulPumpEditor::DecimulPumpEditor(DecimulPumpProcessor& p)
     addKnob(noteKnob, ParamIDs::midiNote, "NOTA MIDI");
     addKnob(thresholdKnob, ParamIDs::threshold, "UMBRAL AUDIO");
 
+    // Knob y no slider horizontal: el LookAndFeel compartido solo dibuja bien los verticales.
     addKnob(crossoverKnob, ParamIDs::crossover, "CROSSOVER");
-    crossoverKnob.slider.setSliderStyle(juce::Slider::LinearHorizontal);
-    crossoverKnob.slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 64, 18);
-    crossoverKnob.label.setJustificationType(juce::Justification::centredLeft);
 
     triggerLabel.setText("[ DISPARO ]", juce::dontSendNotification);
     bandLabel.setText("[ BANDA QUE BOMBEA ]", juce::dontSendNotification);
@@ -146,7 +144,7 @@ DecimulPumpEditor::DecimulPumpEditor(DecimulPumpProcessor& p)
     startTimerHz(30);
 }
 
-DecimulPumpEditor::~DecimulPumpEditor()
+DecimulGapEditor::~DecimulGapEditor()
 {
     stopTimer();
     setLookAndFeel(nullptr);
@@ -154,7 +152,7 @@ DecimulPumpEditor::~DecimulPumpEditor()
 
 // Rotary cuadrado (si el slider es más ancho que alto, el knob sale ovalado) con el
 // título arriba y el valor abajo.
-void DecimulPumpEditor::placeKnob(Knob& k, juce::Rectangle<int> cell)
+void DecimulGapEditor::placeKnob(Knob& k, juce::Rectangle<int> cell)
 {
     k.label.setBounds(cell.removeFromTop(16));
 
@@ -164,9 +162,9 @@ void DecimulPumpEditor::placeKnob(Knob& k, juce::Rectangle<int> cell)
     k.slider.setBounds(cell.withSizeKeepingCentre(width, side + 18));
 }
 
-void DecimulPumpEditor::applyPreset(int presetIndex)
+void DecimulGapEditor::applyPreset(int presetIndex)
 {
-    const auto c = PumpCurve::preset(presetIndex);
+    const auto c = GapCurve::preset(presetIndex);
     processorRef.setCurve(c, presetIndex);
     curveEditor.setCurve(c);
     lastCurveVersion = processorRef.getCurveVersion();
@@ -177,7 +175,7 @@ void DecimulPumpEditor::applyPreset(int presetIndex)
     shownPreset = presetIndex;
 }
 
-void DecimulPumpEditor::refreshCurveFromProcessor()
+void DecimulGapEditor::refreshCurveFromProcessor()
 {
     curveEditor.setCurve(processorRef.getCurve());
     lastCurveVersion = processorRef.getCurveVersion();
@@ -191,7 +189,7 @@ void DecimulPumpEditor::refreshCurveFromProcessor()
 
 // ------------------------------- Dibujo -------------------------------
 
-void DecimulPumpEditor::paint(juce::Graphics& g)
+void DecimulGapEditor::paint(juce::Graphics& g)
 {
     auto full = getLocalBounds().toFloat();
     DecimuChrome::paintChassisBackground(g, full, 14.0f);
@@ -221,16 +219,16 @@ void DecimulPumpEditor::paint(juce::Graphics& g)
 
     g.setColour(DecimuColours::accentPrimary);
     g.setFont(lookAndFeel.monoFont(22.0f));
-    g.drawText("PUMP", logoArea, juce::Justification::centredLeft);
+    g.drawText("GAP", logoArea, juce::Justification::centredLeft);
 
     g.setColour(DecimuColours::textMuted);
     g.setFont(lookAndFeel.monoFont(13.0f));
     auto footer = getLocalBounds().removeFromBottom(22).reduced(16, 3);
-    g.drawText("DECIMULABS - PUMP - GPLv3", footer, juce::Justification::centredLeft);
+    g.drawText("DECIMULABS - GAP - GPLv3", footer, juce::Justification::centredLeft);
     g.drawText("decimulabs.com", footer, juce::Justification::centredRight);
 }
 
-void DecimulPumpEditor::resized()
+void DecimulGapEditor::resized()
 {
     auto content = getLocalBounds().reduced(22, 18);
     content.removeFromBottom(8);
@@ -298,36 +296,40 @@ void DecimulPumpEditor::resized()
     {
         auto area = triggerRect.reduced(10);
 
+        // Cada sección: los tres botones apilados a la izquierda y los knobs a la derecha.
+        constexpr int pillColW = 104;
+        constexpr int rowH = 98;
+        auto stackPills = [](juce::Rectangle<int> col, DecimuPillButton& a, DecimuPillButton& b, DecimuPillButton& c)
+        {
+            const int h = (col.getHeight() - 8) / 3;
+            a.setBounds(col.removeFromTop(h));
+            col.removeFromTop(4);
+            b.setBounds(col.removeFromTop(h));
+            col.removeFromTop(4);
+            c.setBounds(col.removeFromTop(h));
+        };
+
         triggerLabel.setBounds(area.removeFromTop(16));
-        auto pills = area.removeFromTop(28);
-        const int pw = (pills.getWidth() - 12) / 3;
-        trigSyncPill.setBounds(pills.removeFromLeft(pw));
-        pills.removeFromLeft(6);
-        trigMidiPill.setBounds(pills.removeFromLeft(pw));
-        pills.removeFromLeft(6);
-        trigAudioPill.setBounds(pills);
+        {
+            auto row = area.removeFromTop(rowH);
+            stackPills(row.removeFromLeft(pillColW), trigSyncPill, trigMidiPill, trigAudioPill);
+            row.removeFromLeft(8);
+            const int cw = row.getWidth() / 2;
+            placeKnob(noteKnob, row.removeFromLeft(cw).reduced(2));
+            placeKnob(thresholdKnob, row.reduced(2));
+        }
+
+        hintLabel.setBounds(area.removeFromTop(34).reduced(2, 4));
         area.removeFromTop(4);
 
-        auto row = area.removeFromTop(96);
-        const int cw = row.getWidth() / 3;
-        auto cell = [&](Knob& k) { placeKnob(k, row.removeFromLeft(cw).reduced(2)); };
-        cell(noteKnob);
-        cell(thresholdKnob);
-        hintLabel.setBounds(row.reduced(4));
-
-        area.removeFromTop(6);
         bandLabel.setBounds(area.removeFromTop(16));
-        auto bands = area.removeFromTop(28);
-        bandFullPill.setBounds(bands.removeFromLeft(pw));
-        bands.removeFromLeft(6);
-        bandLowPill.setBounds(bands.removeFromLeft(pw));
-        bands.removeFromLeft(6);
-        bandHighPill.setBounds(bands);
-        area.removeFromTop(4);
-
-        auto xo = area.removeFromTop(26);
-        crossoverKnob.label.setBounds(xo.removeFromLeft(78));
-        crossoverKnob.slider.setBounds(xo);
+        {
+            auto row = area.removeFromTop(rowH);
+            stackPills(row.removeFromLeft(pillColW), bandFullPill, bandLowPill, bandHighPill);
+            row.removeFromLeft(8);
+            const int cw = row.getWidth() / 2;
+            placeKnob(crossoverKnob, row.removeFromLeft(cw).reduced(2));
+        }
     }
 
     // ---- Salida ----
@@ -341,7 +343,7 @@ void DecimulPumpEditor::resized()
 
 // ------------------------------- Timer -------------------------------
 
-void DecimulPumpEditor::timerCallback()
+void DecimulGapEditor::timerCallback()
 {
     auto& apvts = processorRef.apvts;
     auto get = [&](const juce::String& id) { return apvts.getRawParameterValue(id)->load(); };
@@ -365,7 +367,7 @@ void DecimulPumpEditor::timerCallback()
     curveEditor.setPlayState(processorRef.uiPhase.load(), processorRef.uiGain.load());
     curveEditor.setDepth(get(ParamIDs::depth) * 0.01f);
 
-    const double beats = DecimulPumpProcessor::rateBeats(rate);
+    const double beats = DecimulGapProcessor::rateBeats(rate);
     curveEditor.setGridDivisions(beats >= 1.0 ? (int) std::lround(std::min(beats, 8.0)) : 4);
 
     trigSyncPill.setToggleState(trig == 0, juce::dontSendNotification);

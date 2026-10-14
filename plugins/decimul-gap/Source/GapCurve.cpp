@@ -1,4 +1,4 @@
-#include "PumpCurve.h"
+#include "GapCurve.h"
 #include <algorithm>
 #include <cmath>
 
@@ -34,12 +34,12 @@ namespace
     }
 }
 
-PumpCurve::PumpCurve()
+GapCurve::GapCurve()
 {
     points = presets().front().points;
 }
 
-float PumpCurve::evaluate(float x) const
+float GapCurve::evaluate(float x) const
 {
     if (points.size() < 2)
         return points.empty() ? 1.0f : points.front().y;
@@ -63,13 +63,13 @@ float PumpCurve::evaluate(float x) const
     return a.y + (b.y - a.y) * shaped;
 }
 
-void PumpCurve::fillTable(float* table) const
+void GapCurve::fillTable(float* table) const
 {
     for (int i = 0; i <= tableSize; ++i)
         table[i] = std::clamp(evaluate((float) i / (float) tableSize), 0.0f, 1.0f);
 }
 
-void PumpCurve::sanitize()
+void GapCurve::sanitize()
 {
     if (points.size() < 2)
         points = presets().front().points;
@@ -92,7 +92,7 @@ void PumpCurve::sanitize()
         points[i].x = std::clamp(points[i].x, points[i - 1].x + minSpacing, 1.0f - minSpacing);
 }
 
-std::unique_ptr<juce::XmlElement> PumpCurve::toXml() const
+std::unique_ptr<juce::XmlElement> GapCurve::toXml() const
 {
     auto xml = std::make_unique<juce::XmlElement>("CURVE");
     for (auto& p : points)
@@ -105,9 +105,9 @@ std::unique_ptr<juce::XmlElement> PumpCurve::toXml() const
     return xml;
 }
 
-PumpCurve PumpCurve::fromXml(const juce::XmlElement& xml)
+GapCurve GapCurve::fromXml(const juce::XmlElement& xml)
 {
-    PumpCurve curve;
+    GapCurve curve;
     curve.points.clear();
 
     for (auto* e : xml.getChildWithTagNameIterator("P"))
@@ -123,16 +123,16 @@ PumpCurve PumpCurve::fromXml(const juce::XmlElement& xml)
     return curve;
 }
 
-int PumpCurve::numPresets() { return (int) presets().size(); }
+int GapCurve::numPresets() { return (int) presets().size(); }
 
-juce::String PumpCurve::presetName(int index)
+juce::String GapCurve::presetName(int index)
 {
     return presets()[(size_t) std::clamp(index, 0, numPresets() - 1)].name;
 }
 
-PumpCurve PumpCurve::preset(int index)
+GapCurve GapCurve::preset(int index)
 {
-    PumpCurve curve;
+    GapCurve curve;
     curve.points = presets()[(size_t) std::clamp(index, 0, numPresets() - 1)].points;
     curve.sanitize();
     return curve;

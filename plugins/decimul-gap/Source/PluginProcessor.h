@@ -4,7 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <array>
 #include <atomic>
-#include "PumpCurve.h"
+#include "GapCurve.h"
 
 namespace ParamIDs
 {
@@ -25,7 +25,7 @@ namespace ParamIDs
 }
 
 /**
-    DecimuLabs Pump — bombeo de volumen sincronizado al tempo, como un sidechain
+    DecimuLabs Gap — bombeo de volumen sincronizado al tempo, como un sidechain
     "de mentira" que no necesita rutear ningún kick. Una curva editable (un ciclo) se
     repite siguiendo el tiempo del DAW, o se dispara una vez por cada nota MIDI o por
     cada golpe de kick detectado en la entrada de audio (o en el sidechain).
@@ -34,14 +34,14 @@ namespace ParamIDs
     refresca con un try-lock cuando cambia la versión); el message thread edita la
     curva bajo `curveLock`. Ver SPEC.md.
 */
-class DecimulPumpProcessor : public juce::AudioProcessor
+class DecimulGapProcessor : public juce::AudioProcessor
 {
 public:
     enum Trigger { triggerSync = 0, triggerMidi = 1, triggerAudio = 2 };
     enum Band { bandFull = 0, bandLow = 1, bandHigh = 2 };
 
-    DecimulPumpProcessor();
-    ~DecimulPumpProcessor() override = default;
+    DecimulGapProcessor();
+    ~DecimulGapProcessor() override = default;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -71,8 +71,8 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
     // ---- Curva (message thread) ----
-    PumpCurve getCurve() const;
-    void setCurve(const PumpCurve& curve, int presetIndex = -1);   // -1 = "custom"
+    GapCurve getCurve() const;
+    void setCurve(const GapCurve& curve, int presetIndex = -1);   // -1 = "custom"
     int getPresetIndex() const { return presetIndex.load(); }
     int getCurveVersion() const
     {
@@ -97,13 +97,13 @@ private:
 
     // Curva compartida con la UI
     mutable juce::SpinLock curveLock;
-    PumpCurve curve;
-    std::array<float, PumpCurve::tableSize + 1> sharedTable {};
+    GapCurve curve;
+    std::array<float, GapCurve::tableSize + 1> sharedTable {};
     int sharedVersion = 1;
     std::atomic<int> presetIndex { 0 };
 
     // Copia que usa el audio thread
-    std::array<float, PumpCurve::tableSize + 1> table {};
+    std::array<float, GapCurve::tableSize + 1> table {};
     int tableVersion = 0;
 
     // Fase y gain (audio thread)
@@ -122,5 +122,5 @@ private:
     float lastCutoff = -1.0f;
     juce::dsp::Gain<float> outputGain;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulPumpProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulGapProcessor)
 };

@@ -8,14 +8,14 @@ namespace
     constexpr float hitRadius = 10.0f;
 }
 
-void PumpCurveEditor::setCurve(const PumpCurve& newCurve)
+void GapCurveEditor::setCurve(const GapCurve& newCurve)
 {
     curve = newCurve;
     curve.sanitize();
     repaint();
 }
 
-void PumpCurveEditor::setPlayState(float newPhase, float newGain)
+void GapCurveEditor::setPlayState(float newPhase, float newGain)
 {
     if (std::abs(newPhase - phase) > 0.0005f || std::abs(newGain - gain) > 0.0005f)
     {
@@ -25,7 +25,7 @@ void PumpCurveEditor::setPlayState(float newPhase, float newGain)
     }
 }
 
-void PumpCurveEditor::setDepth(float newDepth)
+void GapCurveEditor::setDepth(float newDepth)
 {
     if (newDepth != depth)
     {
@@ -34,7 +34,7 @@ void PumpCurveEditor::setDepth(float newDepth)
     }
 }
 
-void PumpCurveEditor::setGridDivisions(int divisions)
+void GapCurveEditor::setGridDivisions(int divisions)
 {
     if (divisions != gridDivisions)
     {
@@ -43,32 +43,32 @@ void PumpCurveEditor::setGridDivisions(int divisions)
     }
 }
 
-void PumpCurveEditor::setAccentActive(bool) {}
+void GapCurveEditor::setAccentActive(bool) {}
 
-juce::Rectangle<float> PumpCurveEditor::plotArea() const
+juce::Rectangle<float> GapCurveEditor::plotArea() const
 {
     return getLocalBounds().toFloat().reduced(18.0f, 16.0f);
 }
 
-juce::Point<float> PumpCurveEditor::toPixel(float x, float y) const
+juce::Point<float> GapCurveEditor::toPixel(float x, float y) const
 {
     auto a = plotArea();
     return { a.getX() + x * a.getWidth(), a.getY() + (1.0f - y) * a.getHeight() };
 }
 
-float PumpCurveEditor::xFromPixel(float px) const
+float GapCurveEditor::xFromPixel(float px) const
 {
     auto a = plotArea();
     return std::clamp((px - a.getX()) / a.getWidth(), 0.0f, 1.0f);
 }
 
-float PumpCurveEditor::yFromPixel(float py) const
+float GapCurveEditor::yFromPixel(float py) const
 {
     auto a = plotArea();
     return std::clamp(1.0f - (py - a.getY()) / a.getHeight(), 0.0f, 1.0f);
 }
 
-juce::Point<float> PumpCurveEditor::bendHandlePosition(int segment) const
+juce::Point<float> GapCurveEditor::bendHandlePosition(int segment) const
 {
     const auto& a = curve.points[(size_t) segment];
     const auto& b = curve.points[(size_t) segment + 1];
@@ -76,7 +76,7 @@ juce::Point<float> PumpCurveEditor::bendHandlePosition(int segment) const
     return toPixel(mx, curve.evaluate(mx));
 }
 
-int PumpCurveEditor::hitPoint(juce::Point<float> p) const
+int GapCurveEditor::hitPoint(juce::Point<float> p) const
 {
     int best = -1;
     float bestDist = hitRadius;
@@ -92,7 +92,7 @@ int PumpCurveEditor::hitPoint(juce::Point<float> p) const
     return best;
 }
 
-int PumpCurveEditor::hitBendHandle(juce::Point<float> p) const
+int GapCurveEditor::hitBendHandle(juce::Point<float> p) const
 {
     for (size_t i = 0; i + 1 < curve.points.size(); ++i)
     {
@@ -106,13 +106,13 @@ int PumpCurveEditor::hitBendHandle(juce::Point<float> p) const
     return -1;
 }
 
-void PumpCurveEditor::notifyChanged()
+void GapCurveEditor::notifyChanged()
 {
     if (onCurveChanged)
         onCurveChanged(curve);
 }
 
-void PumpCurveEditor::paint(juce::Graphics& g)
+void GapCurveEditor::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
     g.setColour(DecimuColours::trackFill);
@@ -212,7 +212,7 @@ void PumpCurveEditor::paint(juce::Graphics& g)
     }
 }
 
-void PumpCurveEditor::mouseMove(const juce::MouseEvent& e)
+void GapCurveEditor::mouseMove(const juce::MouseEvent& e)
 {
     const auto p = e.position;
     const int hp = hitPoint(p);
@@ -228,7 +228,7 @@ void PumpCurveEditor::mouseMove(const juce::MouseEvent& e)
     }
 }
 
-void PumpCurveEditor::mouseDown(const juce::MouseEvent& e)
+void GapCurveEditor::mouseDown(const juce::MouseEvent& e)
 {
     const int hp = hitPoint(e.position);
 
@@ -249,7 +249,7 @@ void PumpCurveEditor::mouseDown(const juce::MouseEvent& e)
     dragBend = hp >= 0 ? -1 : hitBendHandle(e.position);
 }
 
-void PumpCurveEditor::mouseDrag(const juce::MouseEvent& e)
+void GapCurveEditor::mouseDrag(const juce::MouseEvent& e)
 {
     if (dragPoint >= 0)
     {
@@ -267,8 +267,8 @@ void PumpCurveEditor::mouseDrag(const juce::MouseEvent& e)
         const bool isLast = dragPoint == (int) curve.points.size() - 1;
         if (!isFirst && !isLast)
         {
-            const float lo = curve.points[(size_t) dragPoint - 1].x + PumpCurve::minSpacing;
-            const float hi = curve.points[(size_t) dragPoint + 1].x - PumpCurve::minSpacing;
+            const float lo = curve.points[(size_t) dragPoint - 1].x + GapCurve::minSpacing;
+            const float hi = curve.points[(size_t) dragPoint + 1].x - GapCurve::minSpacing;
             pt.x = std::clamp(x, lo, hi);
         }
         pt.y = y;
@@ -297,13 +297,13 @@ void PumpCurveEditor::mouseDrag(const juce::MouseEvent& e)
     }
 }
 
-void PumpCurveEditor::mouseUp(const juce::MouseEvent&)
+void GapCurveEditor::mouseUp(const juce::MouseEvent&)
 {
     dragPoint = dragBend = -1;
     repaint();
 }
 
-void PumpCurveEditor::mouseDoubleClick(const juce::MouseEvent& e)
+void GapCurveEditor::mouseDoubleClick(const juce::MouseEvent& e)
 {
     const int hp = hitPoint(e.position);
 

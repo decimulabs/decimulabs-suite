@@ -1,7 +1,7 @@
-// Test de integración del motor de Pump (sin UI real ni host): un AudioPlayHead falso
+// Test de integración del motor de Gap (sin UI real ni host): un AudioPlayHead falso
 // da tempo/posición y se verifica la ganancia que sale de verdad por processBlock.
 //
-// Compilar con: cmake -DDECIMU_PUMP_TESTS=ON y correr PumpEngineTest.exe.
+// Compilar con: cmake -DDECIMU_GAP_TESTS=ON y correr GapEngineTest.exe.
 // Con `--screenshot ruta.png` arma una escena de demostración de la UI y la guarda.
 
 #include "../Source/PluginProcessor.h"
@@ -39,7 +39,7 @@ namespace
         }
     };
 
-    void setParam(DecimulPumpProcessor& p, const juce::String& id, float plain)
+    void setParam(DecimulGapProcessor& p, const juce::String& id, float plain)
     {
         auto* param = p.apvts.getParameter(id);
         param->setValueNotifyingHost(param->convertTo0to1(plain));
@@ -53,7 +53,7 @@ namespace
 
     // Procesa `numSamples` de una entrada generada por `gen(i, channel)`. Los eventos
     // MIDI son (muestra absoluta, nota).
-    Capture run(DecimulPumpProcessor& p, TestPlayHead& ph, int numSamples,
+    Capture run(DecimulGapProcessor& p, TestPlayHead& ph, int numSamples,
                 const std::function<float(int, int)>& gen,
                 const std::vector<std::pair<int, int>>& noteOns = {},
                 int startIndex = 0)
@@ -100,9 +100,9 @@ namespace
         return (float) (2.0 / (double) len * std::sqrt(re * re + im * im));
     }
 
-    std::unique_ptr<DecimulPumpProcessor> makeProcessor(TestPlayHead& ph)
+    std::unique_ptr<DecimulGapProcessor> makeProcessor(TestPlayHead& ph)
     {
-        auto p = std::make_unique<DecimulPumpProcessor>();
+        auto p = std::make_unique<DecimulGapProcessor>();
         p->setRateAndBufferSizeDetails(sr, blockSize);
         p->prepareToPlay(sr, blockSize);
         p->setPlayHead(&ph);
@@ -125,7 +125,7 @@ int main(int argc, char** argv)
         ph.bpm = 126.0;
         auto p = makeProcessor(ph);
         setParam(*p, ParamIDs::smooth, 3.0f);
-        p->setCurve(PumpCurve::preset(0), 0);
+        p->setCurve(GapCurve::preset(0), 0);
 
         // Un poco de audio para que el cabezal quede en algún punto del ciclo.
         run(*p, ph, (int) (sr * 0.07), [](int i, int) { return 0.4f * (float) std::sin(2.0 * pi * 55.0 * i / sr); });
@@ -144,7 +144,7 @@ int main(int argc, char** argv)
 
     // ================= Modelo de la curva =================
     {
-        const auto c = PumpCurve::preset(0);   // Classic Pump
+        const auto c = GapCurve::preset(0);   // Classic Pump
         check(std::abs(c.evaluate(0.0f)) < 1e-4f, "curva: arranca en 0 (el kick)", juce::String(c.evaluate(0.0f), 3));
         check(std::abs(c.evaluate(1.0f) - 1.0f) < 1e-4f && std::abs(c.evaluate(0.7f) - 1.0f) < 1e-4f,
               "curva: termina en 1");
@@ -160,16 +160,16 @@ int main(int argc, char** argv)
         }
         check(monotonic, "curva: la recuperación es monótona");
 
-        std::array<float, PumpCurve::tableSize + 1> table {};
+        std::array<float, GapCurve::tableSize + 1> table {};
         c.fillTable(table.data());
         check(std::abs(table[512] - c.evaluate(0.5f)) < 1e-4f, "curva: la tabla coincide con evaluate()");
 
         const auto xml = c.toXml();
-        const auto back = PumpCurve::fromXml(*xml);
+        const auto back = GapCurve::fromXml(*xml);
         check(back.points.size() == c.points.size() && std::abs(back.evaluate(0.3f) - c.evaluate(0.3f)) < 1e-4f,
               "curva: ida y vuelta por XML");
 
-        PumpCurve messy;
+        GapCurve messy;
         messy.points = { { 0.9f, 0.4f, 0.0f }, { 0.2f, 2.0f, 5.0f }, { 0.5f, -1.0f, 0.0f } };
         messy.sanitize();
         check(messy.points.front().x == 0.0f && messy.points.back().x == 1.0f
@@ -181,7 +181,7 @@ int main(int argc, char** argv)
     {
         TestPlayHead ph;
         auto p = makeProcessor(ph);                       // 120 BPM, rate 1/4 = 24000 muestras
-        p->setCurve(PumpCurve::preset(0), 0);
+        p->setCurve(GapCurve::preset(0), 0);
         auto cap = run(*p, ph, 48000 * 2, dcSignal);
 
         auto g = [&](int i) { return cap.l[(size_t) i] / dc; };
@@ -196,14 +196,14 @@ int main(int argc, char** argv)
     {
         TestPlayHead ph;
         auto p = makeProcessor(ph);
-        p->setCurve(PumpCurve::preset(0), 0);
+        p->setCurve(GapCurve::preset(0), 0);
         setParam(*p, ParamIDs::depth, 50.0f);
         auto cap = run(*p, ph, 24000, dcSignal);
         check(std::abs(cap.l[10] / dc - 0.5f) < 0.05f, "depth 50%: el piso es la mitad", juce::String(cap.l[10] / dc, 3));
 
         TestPlayHead ph2;
         auto p2 = makeProcessor(ph2);
-        p2->setCurve(PumpCurve::preset(0), 0);
+        p2->setCurve(GapCurve::preset(0), 0);
         setParam(*p2, ParamIDs::mix, 0.0f);
         auto cap2 = run(*p2, ph2, 24000, dcSignal);
         float maxDiff = 0.0f;
@@ -216,7 +216,7 @@ int main(int argc, char** argv)
     {
         TestPlayHead ph;
         auto p = makeProcessor(ph);
-        p->setCurve(PumpCurve::preset(0), 0);
+        p->setCurve(GapCurve::preset(0), 0);
         setParam(*p, ParamIDs::nudge, 10.0f);             // +10 ms = 480 muestras de retraso
         auto cap = run(*p, ph, 48000, dcSignal);
         check(cap.l[24000 + 100] / dc > 0.9f, "nudge +10 ms: en el segundo beat la caída todavía no llegó a los 100 samples",
@@ -226,7 +226,7 @@ int main(int argc, char** argv)
 
         TestPlayHead ph2;
         auto p2 = makeProcessor(ph2);
-        p2->setCurve(PumpCurve::preset(0), 0);
+        p2->setCurve(GapCurve::preset(0), 0);
         setParam(*p2, ParamIDs::rate, 7.0f);              // 1/8 = 12000 muestras
         auto cap2 = run(*p2, ph2, 24000, dcSignal);
         check(cap2.l[12000 + 100] / dc < 0.12f && cap2.l[9600] / dc > 0.97f, "rate 1/8: el ciclo dura la mitad",
@@ -238,7 +238,7 @@ int main(int argc, char** argv)
         TestPlayHead ph;
         ph.playing = false;
         auto p = makeProcessor(ph);
-        p->setCurve(PumpCurve::preset(0), 0);
+        p->setCurve(GapCurve::preset(0), 0);
         auto cap = run(*p, ph, 48000, dcSignal);
 
         float lo = 10.0f, hi = -10.0f;
@@ -256,7 +256,7 @@ int main(int argc, char** argv)
     {
         TestPlayHead ph;
         auto p = makeProcessor(ph);
-        p->setCurve(PumpCurve::preset(0), 0);
+        p->setCurve(GapCurve::preset(0), 0);
         setParam(*p, ParamIDs::trigger, 1.0f);
         setParam(*p, ParamIDs::midiNote, 36.0f);
 
@@ -279,7 +279,7 @@ int main(int argc, char** argv)
     {
         TestPlayHead ph;
         auto p = makeProcessor(ph);
-        p->setCurve(PumpCurve::preset(0), 0);
+        p->setCurve(GapCurve::preset(0), 0);
         setParam(*p, ParamIDs::trigger, 2.0f);
         setParam(*p, ParamIDs::threshold, -24.0f);
 
@@ -316,7 +316,7 @@ int main(int argc, char** argv)
         {
             TestPlayHead ph;
             auto p = makeProcessor(ph);
-            p->setCurve(PumpCurve::preset(0), 0);
+            p->setCurve(GapCurve::preset(0), 0);
             setParam(*p, ParamIDs::band, (float) bandIndex);
             auto cap = run(*p, ph, 48000, gen);
             struct R { float lowQuiet, lowLoud, highQuiet, highLoud; };
@@ -341,7 +341,7 @@ int main(int argc, char** argv)
     {
         TestPlayHead ph;
         auto p = makeProcessor(ph);
-        p->setCurve(PumpCurve::preset(0), 0);
+        p->setCurve(GapCurve::preset(0), 0);
         setParam(*p, ParamIDs::spread, 50.0f);   // R desfasado medio ciclo
         auto cap = run(*p, ph, 48000, dcSignal);
         check(cap.l[100] / dc < 0.12f && cap.r[100] / dc > 0.95f, "spread 50%: L bombea y R todavía no",
@@ -356,7 +356,7 @@ int main(int argc, char** argv)
         TestPlayHead ph;
         auto p = makeProcessor(ph);
 
-        PumpCurve custom;
+        GapCurve custom;
         custom.points = { { 0.0f, 0.2f, 0.3f }, { 0.4f, 0.9f, -0.2f }, { 0.7f, 0.1f, 0.0f }, { 1.0f, 1.0f, 0.0f } };
         p->setCurve(custom, -1);
         setParam(*p, ParamIDs::rate, 7.0f);
@@ -378,7 +378,7 @@ int main(int argc, char** argv)
     {
         TestPlayHead ph;
         auto p = makeProcessor(ph);
-        p->setCurve(PumpCurve::preset(0), 0);
+        p->setCurve(GapCurve::preset(0), 0);
         setParam(*p, ParamIDs::bypass, 1.0f);
         auto cap = run(*p, ph, 4800, dcSignal);
         float maxDiff = 0.0f;

@@ -24,11 +24,11 @@ namespace
     constexpr int defaultRateIndex = 4;   // 1/4
 }
 
-int DecimulPumpProcessor::numRates() { return (int) rates().size(); }
-juce::String DecimulPumpProcessor::rateName(int index) { return rates()[(size_t) std::clamp(index, 0, numRates() - 1)].name; }
-double DecimulPumpProcessor::rateBeats(int index) { return rates()[(size_t) std::clamp(index, 0, numRates() - 1)].beats; }
+int DecimulGapProcessor::numRates() { return (int) rates().size(); }
+juce::String DecimulGapProcessor::rateName(int index) { return rates()[(size_t) std::clamp(index, 0, numRates() - 1)].name; }
+double DecimulGapProcessor::rateBeats(int index) { return rates()[(size_t) std::clamp(index, 0, numRates() - 1)].beats; }
 
-DecimulPumpProcessor::DecimulPumpProcessor()
+DecimulGapProcessor::DecimulGapProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
                          .withInput("Sidechain", juce::AudioChannelSet::stereo(), false)
@@ -40,7 +40,7 @@ DecimulPumpProcessor::DecimulPumpProcessor()
     tableVersion = sharedVersion;
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout DecimulPumpProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout DecimulGapProcessor::createParameterLayout()
 {
     using namespace juce;
     std::vector<std::unique_ptr<RangedAudioParameter>> params;
@@ -90,7 +90,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulPumpProcessor::create
     return { params.begin(), params.end() };
 }
 
-bool DecimulPumpProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+bool DecimulGapProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
         return false;
@@ -107,7 +107,7 @@ bool DecimulPumpProcessor::isBusesLayoutSupported(const BusesLayout& layouts) co
     return true;
 }
 
-void DecimulPumpProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+void DecimulGapProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
 
@@ -135,7 +135,7 @@ void DecimulPumpProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     holdoffSamples = 0;
 }
 
-void DecimulPumpProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+void DecimulGapProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
@@ -269,8 +269,8 @@ void DecimulPumpProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 
     auto lookup = [this](float phase)
     {
-        const float pos = std::clamp(phase, 0.0f, 1.0f) * (float) PumpCurve::tableSize;
-        const int i0 = std::min((int) pos, PumpCurve::tableSize - 1);
+        const float pos = std::clamp(phase, 0.0f, 1.0f) * (float) GapCurve::tableSize;
+        const int i0 = std::min((int) pos, GapCurve::tableSize - 1);
         const float f = pos - (float) i0;
         return table[(size_t) i0] + f * (table[(size_t) i0 + 1] - table[(size_t) i0]);
     };
@@ -390,15 +390,15 @@ void DecimulPumpProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 
 // =============================== Curva ===============================
 
-PumpCurve DecimulPumpProcessor::getCurve() const
+GapCurve DecimulGapProcessor::getCurve() const
 {
     const juce::SpinLock::ScopedLockType lock(curveLock);
     return curve;
 }
 
-void DecimulPumpProcessor::setCurve(const PumpCurve& newCurve, int preset)
+void DecimulGapProcessor::setCurve(const GapCurve& newCurve, int preset)
 {
-    PumpCurve clean = newCurve;
+    GapCurve clean = newCurve;
     clean.sanitize();
 
     {
@@ -410,14 +410,14 @@ void DecimulPumpProcessor::setCurve(const PumpCurve& newCurve, int preset)
     presetIndex.store(preset);
 }
 
-juce::AudioProcessorEditor* DecimulPumpProcessor::createEditor()
+juce::AudioProcessorEditor* DecimulGapProcessor::createEditor()
 {
-    return new DecimulPumpEditor(*this);
+    return new DecimulGapEditor(*this);
 }
 
 // =============================== Estado ===============================
 
-void DecimulPumpProcessor::getStateInformation(juce::MemoryBlock& destData)
+void DecimulGapProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
     if (!state.isValid())
@@ -431,7 +431,7 @@ void DecimulPumpProcessor::getStateInformation(juce::MemoryBlock& destData)
     }
 }
 
-void DecimulPumpProcessor::setStateInformation(const void* data, int sizeInBytes)
+void DecimulGapProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     auto xml = getXmlFromBinary(data, sizeInBytes);
     if (xml == nullptr)
@@ -439,7 +439,7 @@ void DecimulPumpProcessor::setStateInformation(const void* data, int sizeInBytes
 
     if (auto* curveXml = xml->getChildByName("CURVE"))
     {
-        setCurve(PumpCurve::fromXml(*curveXml), xml->getIntAttribute("presetIndex", -1));
+        setCurve(GapCurve::fromXml(*curveXml), xml->getIntAttribute("presetIndex", -1));
         xml->removeChildElement(curveXml, true);
     }
 
@@ -448,5 +448,5 @@ void DecimulPumpProcessor::setStateInformation(const void* data, int sizeInBytes
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new DecimulPumpProcessor();
+    return new DecimulGapProcessor();
 }

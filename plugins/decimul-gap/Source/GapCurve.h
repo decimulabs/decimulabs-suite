@@ -24,13 +24,13 @@ struct CurvePoint
     float bend = 0.0f;   // forma del tramo que SALE de este punto (el último la ignora)
 };
 
-class PumpCurve
+class GapCurve
 {
 public:
     static constexpr int tableSize = 1024;     // la tabla tiene tableSize + 1 entradas
     static constexpr float minSpacing = 0.004f;
 
-    PumpCurve();
+    GapCurve();
 
     std::vector<CurvePoint> points;
 
@@ -41,9 +41,9 @@ public:
     void sanitize();
 
     std::unique_ptr<juce::XmlElement> toXml() const;
-    static PumpCurve fromXml(const juce::XmlElement& xml);
+    static GapCurve fromXml(const juce::XmlElement& xml);
 
     static int numPresets();
     static juce::String presetName(int index);
-    static PumpCurve preset(int index);
+    static GapCurve preset(int index);
 };

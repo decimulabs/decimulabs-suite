@@ -1,7 +1,8 @@
-# DecimuLabs Pump — Spec
+# DecimuLabs Gap — Spec
 
-Nombre de trabajo: **Pump** (a confirmar antes de publicar; "Duck" ya existe, es un
-plugin de Devious Machines con el mismo concepto).
+Nombre: **Gap** — el "hueco" que le hace al sonido en el tiempo (hermano de **Carve**,
+que hace el hueco en las frecuencias). "Duck" estaba descartado: ya existe, es un
+plugin de Devious Machines con el mismo concepto.
 
 Bombeo de volumen sincronizado al tempo: un "sidechain de mentira" que no necesita
 rutear ningún kick. Una **curva** de volumen, que dibujás vos o elegís de los presets,
@@ -102,13 +103,13 @@ automatización de `Depth`/`Rate`/`Mix`.
 ## Compilar y testear
 
 ```
-cmake -S plugins/decimul-pump -B plugins/decimul-pump/build
-cmake --build plugins/decimul-pump/build --config Release
+cmake -S plugins/decimul-gap -B plugins/decimul-gap/build
+cmake --build plugins/decimul-gap/build --config Release
 
 # test de integración del motor (opcional)
-cmake -S plugins/decimul-pump -B plugins/decimul-pump/build -DDECIMU_PUMP_TESTS=ON
-cmake --build plugins/decimul-pump/build --config Release --target PumpEngineTest
-plugins/decimul-pump/build/PumpEngineTest_artefacts/Release/PumpEngineTest.exe
+cmake -S plugins/decimul-gap -B plugins/decimul-gap/build -DDECIMU_GAP_TESTS=ON
+cmake --build plugins/decimul-gap/build --config Release --target GapEngineTest
+plugins/decimul-gap/build/GapEngineTest_artefacts/Release/GapEngineTest.exe
 # captura de la UI sin DAW
-PumpEngineTest.exe --screenshot ruta.png
+GapEngineTest.exe --screenshot ruta.png
 ```
