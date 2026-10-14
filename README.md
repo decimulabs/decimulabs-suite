@@ -55,6 +55,7 @@ escribir su propio DSP (`PluginProcessor`) y componer su propio layout de módul
 | **DecimuLabs Guitars** — multiefecto para guitarra eléctrica (Gate/Drive/Tone/Cab/Modulation/Space/Echo) | 🟢 DSP de referencia + UI completa, tema ámbar | [plugins/decimul-guitars](plugins/decimul-guitars) |
 | **DecimuLabs Versus (AB)** — comparador A/B de mezclas y masterings contra referencias, con volumen igualado por LUFS | 🟢 MVP funcionando + test de motor, tema violeta | [plugins/decimul-versus](plugins/decimul-versus) |
 | **DecimuLabs Gap** — bombeo de volumen sincronizado (sidechain "de mentira") con curva dibujable, trigger MIDI/audio y banda baja | 🟢 MVP funcionando + test de motor, tema lima | [plugins/decimul-gap](plugins/decimul-gap) |
+| **DecimuLabs Trigger** (nombre de trabajo) — trigger de batería: detecta golpes y su intensidad, sale MIDI con velocity y reproductor propio con capas y round-robin | 🟢 v0.2 funcionando + test de motor, tema coral | [plugins/decimul-trigger](plugins/decimul-trigger) |
 | **Decimul SF2** — reproductor de soundfonts (sampler) | ⚪ pendiente | [plugins/sf2-player](plugins/sf2-player) |
 | **Bass / Drums / Vocals** (a definir) | ⚪ ideas abiertas, reusarían `shared/` | — |
 
