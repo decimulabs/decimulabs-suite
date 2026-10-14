@@ -161,6 +161,33 @@ namespace
     }
 
     std::vector<float> silence(double seconds) { return std::vector<float>((size_t) (seconds * sr), 0.0f); }
+
+    // "Instrumentos" sintéticos con distinta forma espectral, para probar la huella.
+    enum class Kind { snare, hat, kick };
+
+    void addDrum(std::vector<float>& x, double atSeconds, float peakDb, Kind kind)
+    {
+        std::vector<double> freqs;
+        double tau = 0.03;
+        switch (kind)
+        {
+            case Kind::snare: freqs = { 190.0, 420.0, 900.0, 2400.0, 5200.0 }; tau = 0.05; break;   // cuerpo + chasquido
+            case Kind::hat:   freqs = { 6800.0, 8600.0, 10400.0 };              tau = 0.02; break;   // solo agudos
+            case Kind::kick:  freqs = { 85.0, 110.0, 140.0 };                   tau = 0.07; break;   // solo graves
+        }
+
+        const int start = (int) (atSeconds * sr);
+        const int len = (int) (0.25 * sr);
+        const float amp = juce::Decibels::decibelsToGain(peakDb) / (float) freqs.size() * 1.6f;
+        for (int i = 0; i < len && start + i < (int) x.size(); ++i)
+        {
+            const double t = (double) i / sr;
+            double v = 0.0;
+            for (double f : freqs)
+                v += std::sin(2.0 * pi * f * t);
+            x[(size_t) (start + i)] += amp * (float) (std::exp(-t / tau) * v);
+        }
+    }
 }
 
 int main(int argc, char** argv)
@@ -190,17 +217,32 @@ int main(int argc, char** argv)
         p->setVelocityRange(2, 91, 127);
         p->setVelocityRange(3, 91, 127);
 
-        // Una frase de caja: negras con acentos, un par de ghost notes y un flam.
-        auto x = silence(3.6);
-        const double times[] = { 0.10, 0.50, 0.75, 0.90, 1.30, 1.50, 1.70, 1.90, 2.30, 2.50, 2.60, 3.10 };
-        const float levels[] = { -8, -16, -26, -12, -7, -20, -28, -9, -14, -24, -10, -6 };
-        for (int i = 0; i < 12; ++i)
-            addHit(x, times[i], levels[i], 220.0 + 15.0 * (i % 4), 0.025);
-
         // El editor se abre antes de tocar: al abrirse descarta lo que había en la cola.
         std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
-        editor->setSize(1100, 790);
+        editor->setSize(1100, 850);
+
+        // 1) Aprende la huella de la caja (8 golpes solos).
+        p->startLearning();
+        auto learn = silence(2.8);
+        for (int i = 0; i < 8; ++i)
+            addDrum(learn, 0.15 + 0.3 * i, -9.0f - 1.5f * (float) (i % 3), Kind::snare);
+        run(*p, learn);
+        p->stopLearning();
+        run(*p, silence(0.1));
+
+        // 2) Frase con bleed de hi-hat entre los golpes de caja; rechaza el bleed y graba la caja.
+        setParam(*p, ParamIDs::fingerprint, 1.0f);
+        p->setCapturing(true);
+        auto x = silence(3.6);
+        const double times[] = { 0.10, 0.30, 0.50, 0.75, 0.90, 1.10, 1.30, 1.50, 1.70, 1.90, 2.30, 2.50, 2.60, 2.90, 3.10 };
+        const float levels[] = { -8, -14, -16, -26, -12, -15, -7, -20, -28, -9, -14, -24, -10, -16, -6 };
+        const Kind kinds[] = { Kind::snare, Kind::hat, Kind::snare, Kind::snare, Kind::snare, Kind::hat, Kind::snare,
+                               Kind::snare, Kind::snare, Kind::snare, Kind::snare, Kind::snare, Kind::snare,
+                               Kind::hat, Kind::snare };
+        for (int i = 0; i < 15; ++i)
+            addDrum(x, times[i], levels[i], kinds[i]);
         run(*p, x);
+        p->setCapturing(false);
         juce::MessageManager::getInstance()->runDispatchLoopUntil(600);
 
         const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);
@@ -470,6 +512,212 @@ int main(int argc, char** argv)
         for (size_t i = 0; i < x.size(); ++i)
             maxDiff = std::max(maxDiff, std::abs(cap.l[i] - x[i]));
         check(cap.events.empty() && maxDiff < 1e-6f, "bypass: el audio pasa intacto y no sale MIDI");
+    }
+
+    // ================= Huella: rechazar bleed (v0.3) =================
+    {
+        auto p = makeProcessor();
+        setParam(*p, ParamIDs::fingerprint, 1.0f);
+        setParam(*p, ParamIDs::match, 0.80f);
+
+        // 1) Aprender: 8 golpes de "caja", con distintos niveles.
+        p->startLearning();
+        auto learn = silence(3.0);
+        for (int i = 0; i < 8; ++i)
+            addDrum(learn, 0.2 + 0.3 * i, -8.0f - 2.0f * (float) (i % 4), Kind::snare);
+        run(*p, learn);
+        p->stopLearning();
+        run(*p, silence(0.05));
+
+        check(p->hasFingerprint() && p->getFingerprintHits() == 8, "aprende la huella de 8 golpes",
+              juce::String(p->getFingerprintHits()));
+
+        // 2) Tocar mezclado: 3 cajas, 3 hi-hats, 3 bombos. Solo las cajas deben pasar.
+        auto mixed = silence(4.0);
+        const Kind order[] = { Kind::snare, Kind::hat, Kind::kick, Kind::snare, Kind::hat, Kind::kick,
+                               Kind::snare, Kind::hat, Kind::kick };
+        for (int i = 0; i < 9; ++i)
+            addDrum(mixed, 0.2 + 0.4 * i, -10.0f, order[i]);
+
+        const int rejectedBefore = p->rejectedCount.load();
+        const auto cap = run(*p, mixed);
+        const auto ons = cap.noteOns();
+        check(ons.size() == 3, "con huella: pasan solo los 3 golpes de caja", juce::String((int) ons.size()));
+        check(p->rejectedCount.load() - rejectedBefore == 6, "con huella: rechaza los 6 de bleed (hi-hat y bombo)",
+              juce::String(p->rejectedCount.load() - rejectedBefore));
+
+        // La cola de un hi-hat sobre la caja no la retriguerea ni la confunde.
+        FingerprintBank::Vector tpl {}, last {};
+        p->getFingerprint(tpl);
+        check(p->getLastHitVector(last), "se conoce la forma del último golpe");
+
+        // 3) Sin rechazo, los 9 pasan.
+        setParam(*p, ParamIDs::fingerprint, 0.0f);
+        const auto all = run(*p, mixed).noteOns();
+        check(all.size() == 9, "sin rechazo pasan los 9 golpes", juce::String((int) all.size()));
+
+        // 4) Otro nivel de golpe del mismo instrumento sigue pasando (la huella es forma, no volumen).
+        setParam(*p, ParamIDs::fingerprint, 1.0f);
+        auto quiet = silence(1.0);
+        addDrum(quiet, 0.2, -30.0f, Kind::snare);
+        const auto quietOns = run(*p, quiet).noteOns();
+        check(quietOns.size() == 1, "un golpe de caja suave también pasa (forma, no volumen)",
+              juce::String((int) quietOns.size()));
+
+        // 5) Estado: la huella se guarda y restaura.
+        juce::MemoryBlock state;
+        p->getStateInformation(state);
+        auto p2 = makeProcessor();
+        p2->setStateInformation(state.getData(), (int) state.getSize());
+        FingerprintBank::Vector tpl2 {};
+        p2->getFingerprint(tpl2);
+        float diff = 0.0f;
+        for (size_t k = 0; k < tpl.size(); ++k)
+            diff = std::max(diff, std::abs(tpl[k] - tpl2[k]));
+        check(p2->hasFingerprint() && diff < 1e-4f, "estado: la huella sobrevive al guardado", juce::String(diff, 6));
+
+        // 6) Borrar la huella.
+        p->clearFingerprint();
+        run(*p, silence(0.05));
+        check(!p->hasFingerprint(), "borrar huella");
+    }
+    {
+        // La ventana de análisis se suma a la latencia cuando está en modo alinear.
+        auto p = makeProcessor();
+        setParam(*p, ParamIDs::align, 1.0f);
+        setParam(*p, ParamIDs::fingerprint, 1.0f);
+        setParam(*p, ParamIDs::fpWindow, 12.0f);
+        run(*p, silence(0.2));
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(400);
+        check(p->getLatencySamples() == (int) std::lround(0.012 * sr), "con huella la latencia es la ventana de análisis",
+              juce::String(p->getLatencySamples()));
+    }
+
+    // ================= Captura de muestras (v0.4) =================
+    {
+        auto p = makeProcessor();
+        const auto root = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("trg_capture_test");
+        root.deleteRecursively();
+
+        p->setCapturing(true);
+        auto x = silence(4.2);
+        const float levels[] = { -4.0f, -12.0f, -20.0f, -8.0f, -28.0f, -16.0f };
+        for (int i = 0; i < 6; ++i)
+            addHit(x, 0.3 + 0.6 * i, levels[i], 900.0, 0.03, 0.4);
+        run(*p, x);
+        p->setCapturing(false);
+
+        check(p->getTakeCount() == 6, "captura: graba los 6 golpes", juce::String(p->getTakeCount()));
+
+        std::vector<int> vels;
+        p->getTakeVelocities(vels);
+        bool orderOk = vels.size() == 6 && vels[0] > vels[3] && vels[3] > vels[1] && vels[1] > vels[5]
+                    && vels[5] > vels[2] && vels[2] > vels[4];
+        check(orderOk, "captura: la velocity de cada toma sigue su intensidad");
+
+        const auto result = p->exportTakes("Caja", 3, 2, root);
+        check(result.files == 6, "exportar: 3 capas x 2 alternancias = 6 archivos", result.message);
+        check(waitForSamples(*p, 6), "exportar: las 6 muestras quedan cargadas en el reproductor");
+
+        // Rangos: cubren 1..127 sin huecos ni solapes
+        std::vector<std::pair<int, int>> ranges;
+        for (int s = 0; s < 6; ++s)
+        {
+            int lo = 0, hi = 0;
+            p->getVelocityRange(s, lo, hi);
+            ranges.emplace_back(lo, hi);
+        }
+        std::sort(ranges.begin(), ranges.end());
+        bool tiled = ranges.front().first == 1 && ranges.back().second == 127;
+        for (size_t i = 1; i < ranges.size(); ++i)
+            if (ranges[i].first != ranges[i - 1].first && ranges[i].first != ranges[i - 1].second + 1)
+                tiled = false;
+        check(tiled, "exportar: los rangos de velocity cubren 1-127 sin huecos",
+              juce::String(ranges.front().first) + "-" + juce::String(ranges.back().second));
+
+        // El ataque queda 3 ms después del principio del archivo (pre-roll)
+        auto files = result.folder.findChildFiles(juce::File::findFiles, false, "*.wav");
+        check(files.size() == 6, "exportar: 6 archivos WAV en la carpeta", juce::String(files.size()));
+        if (!files.isEmpty())
+        {
+            juce::AudioFormatManager formats;
+            formats.registerBasicFormats();
+            std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(files[0]));
+            if (reader != nullptr)
+            {
+                juce::AudioBuffer<float> b((int) reader->numChannels, (int) reader->lengthInSamples);
+                reader->read(&b, 0, (int) reader->lengthInSamples, 0, true, true);
+                int first = -1;
+                for (int i = 0; i < b.getNumSamples(); ++i)
+                    if (std::abs(b.getSample(0, i)) > 0.01f) { first = i; break; }
+
+                const int expected = (int) std::lround(0.003 * sr);
+                check(first >= expected - 8 && first <= expected + 24, "exportar: el ataque está a ~3 ms del inicio",
+                      juce::String(first) + " (esperado " + juce::String(expected) + ")");
+                check(b.getNumSamples() > (int) (0.08 * sr), "exportar: conserva la cola del golpe",
+                      juce::String(b.getNumSamples()));
+            }
+        }
+
+        // Reproductor: los golpes nuevos disparan la capa que corresponde
+        setParam(*p, ParamIDs::sampler, 2.0f);
+        auto probe = silence(1.0);
+        addHit(probe, 0.2, -4.0f, 1500.0, 0.02, 0.2);
+        const auto probeCap = run(*p, probe);
+        check(peakIn(probeCap.l, (int) (0.2 * sr), (int) (0.45 * sr)) > 0.05f,
+              "las muestras creadas suenan al golpear");
+        root.deleteRecursively();
+    }
+    {
+        // Un ataque nuevo corta la toma: dos golpes a 80 ms
+        auto p = makeProcessor();
+        const auto root = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("trg_capture_test2");
+        root.deleteRecursively();
+        p->setCapturing(true);
+        auto x = silence(1.4);
+        addHit(x, 0.2, -6.0f, 900.0, 0.05, 0.3);
+        addHit(x, 0.28, -6.0f, 900.0, 0.05, 0.3);
+        addHit(x, 0.9, -6.0f, 900.0, 0.02, 0.3);
+        run(*p, x);
+        p->setCapturing(false);
+
+        const auto result = p->exportTakes("Corte", 1, 3, root);
+        check(p->getTakeCount() == 3 && result.files == 3, "toma cortada por el golpe siguiente: 3 tomas",
+              juce::String(p->getTakeCount()) + " / " + juce::String(result.files));
+
+        auto files = result.folder.findChildFiles(juce::File::findFiles, false, "*.wav");
+        std::vector<int> lengths;
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        for (auto& f : files)
+            if (std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(f)); reader != nullptr)
+                lengths.push_back((int) reader->lengthInSamples);
+        std::sort(lengths.begin(), lengths.end());
+        check(!lengths.empty() && lengths.front() < (int) (0.10 * sr),
+              "la toma del primer golpe termina donde empieza el segundo",
+              lengths.empty() ? juce::String() : juce::String(lengths.front() * 1000.0 / sr, 1) + " ms");
+        root.deleteRecursively();
+    }
+    {
+        // Captura + huella: de una mezcla, graba solo la caja
+        auto p = makeProcessor();
+        setParam(*p, ParamIDs::fingerprint, 1.0f);
+        p->startLearning();
+        auto learn = silence(2.0);
+        for (int i = 0; i < 5; ++i)
+            addDrum(learn, 0.2 + 0.3 * i, -8.0f, Kind::snare);
+        run(*p, learn);
+        p->stopLearning();
+        run(*p, silence(0.05));
+
+        p->setCapturing(true);
+        auto mixed = silence(3.0);
+        for (int i = 0; i < 6; ++i)
+            addDrum(mixed, 0.2 + 0.45 * i, -10.0f, i % 2 == 0 ? Kind::snare : Kind::hat);
+        run(*p, mixed);
+        p->setCapturing(false);
+        check(p->getTakeCount() == 3, "captura con huella: solo se graban los golpes de la caja",
+              juce::String(p->getTakeCount()));
     }
 
     // ================= Estado =================

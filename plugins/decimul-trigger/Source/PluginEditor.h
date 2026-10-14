@@ -76,26 +76,39 @@ private:
     void openFileChooser(int slot);
     void showSlotMenu(int slot);
     void commitVelocityRange(int slot);
+    void refreshCaptureStatus();
 
     DecimulTriggerProcessor& processorRef;
     DecimuLookAndFeel lookAndFeel { DecimuAccentTheme::coralRed() };
 
     juce::Image wordmarkImage, dogImage;
     juce::Rectangle<int> topbarRect, scopeRect, detectRect, velocityRect, midiRect, samplerRect, outputRect;
+    juce::Rectangle<int> printRect, captureRect;
     juce::Rectangle<int> headerLogoArea;
 
     HitScope scope;
     HitReadout readout;
+    FingerprintView fingerprintView;
 
     Knob thresholdKnob, maxLevelKnob, scanKnob, retriggerKnob, lowCutKnob, highCutKnob;
     Knob minVelKnob, maxVelKnob, curveKnob;
     Knob noteKnob, channelKnob, noteLenKnob;
     Knob sampleLevelKnob, origLevelKnob, velSensKnob;
+    Knob matchKnob, fpWindowKnob;
+    Knob capLengthKnob, capLayersKnob, capRRKnob;
 
     DecimuPillButton fixedVelPill { "VELOCITY FIJA" }, listenPill { "OIR DETECCION" };
     DecimuPillButton samplerOffPill { "SOLO MIDI" }, samplerReinforcePill { "REFORZAR" }, samplerReplacePill { "REEMPLAZAR" };
     DecimuPillButton alignPill { "ALINEAR ORIGINAL" }, chokePill { "CORTAR ANTERIOR" };
+    DecimuPillButton learnPill { "APRENDER" }, clearPrintPill { "BORRAR HUELLA" }, rejectPill { "RECHAZAR BLEED" };
+    DecimuPillButton recPill { "GRABAR GOLPES" }, makePill { "CREAR MUESTRAS" },
+                     clearTakesPill { "BORRAR TOMAS" }, openFolderPill { "ABRIR CARPETA" };
+    juce::TextEditor captureName;
+    juce::Label captureNameLabel, captureStatus, printStatus;
     juce::Label detectLabel, velocityLabel, midiLabel, samplerLabel, hintLabel, outputLabel;
+    juce::Label printLabel, captureLabel;
+    juce::File lastExportFolder;
+    juce::String exportMessage;
 
     std::array<std::unique_ptr<TriggerSlotButton>, DecimulTriggerProcessor::numSlots> slotButtons;
     std::array<juce::Label, DecimulTriggerProcessor::numSlots> loLabels, hiLabels;
@@ -109,7 +122,7 @@ private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     std::unique_ptr<SliderAttachment> outputAttach;
-    std::unique_ptr<ButtonAttachment> bypassAttach, fixedAttach, listenAttach, alignAttach, chokeAttach;
+    std::unique_ptr<ButtonAttachment> bypassAttach, fixedAttach, listenAttach, alignAttach, chokeAttach, rejectAttach;
 
     std::unique_ptr<juce::FileChooser> chooser;
     int lastHitCount = 0;

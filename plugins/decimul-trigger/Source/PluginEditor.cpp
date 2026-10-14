@@ -90,8 +90,8 @@ void DecimulTriggerEditor::placeKnob(Knob& k, juce::Rectangle<int> cell)
 {
     k.label.setBounds(cell.removeFromTop(16));
 
-    const int side = std::max(36, std::min(cell.getWidth(), cell.getHeight() - 18));
-    const int width = std::max(side, 56);
+    const int side = std::max(30, std::min(cell.getWidth(), cell.getHeight() - 18));
+    const int width = std::max(side, 52);
     k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, width, 16);
     k.slider.setBounds(cell.withSizeKeepingCentre(width, side + 18));
 }
@@ -126,6 +126,11 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     addKnob(sampleLevelKnob, ParamIDs::sampleLevel, "MUESTRAS");
     addKnob(origLevelKnob, ParamIDs::origLevel, "ORIGINAL");
     addKnob(velSensKnob, ParamIDs::velSens, "VEL > VOLUMEN");
+    addKnob(matchKnob, ParamIDs::match, "PARECIDO MIN");
+    addKnob(fpWindowKnob, ParamIDs::fpWindow, "VENTANA");
+    addKnob(capLengthKnob, ParamIDs::capLength, "LARGO");
+    addKnob(capLayersKnob, ParamIDs::capLayers, "CAPAS");
+    addKnob(capRRKnob, ParamIDs::capRR, "ALTERNAN.");
 
     auto setupSection = [this](juce::Label& l, const juce::String& text)
     {
@@ -138,16 +143,20 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     setupSection(velocityLabel, "VELOCITY");
     setupSection(midiLabel, "MIDI DE SALIDA");
     setupSection(samplerLabel, "REPRODUCTOR PROPIO");
+    setupSection(printLabel, "HUELLA DEL GOLPE");
+    setupSection(captureLabel, "CAPTURA DE MUESTRAS");
 
     // ---- Botones ----
     addAndMakeVisible(fixedVelPill);
     addAndMakeVisible(listenPill);
     addAndMakeVisible(alignPill);
     addAndMakeVisible(chokePill);
+    addAndMakeVisible(rejectPill);
     fixedVelPill.setTooltip("Todos los golpes salen con la velocity maxima, sin medir la intensidad.");
     listenPill.setTooltip("Escucha la senal que usa el detector (despues de los filtros), para ajustar Low/High Cut.");
     alignPill.setTooltip("Retrasa el audio original lo que dura la medicion, para que coincida con el MIDI y el sample.");
     chokePill.setTooltip("Cada golpe nuevo corta las muestras que seguian sonando.");
+    rejectPill.setTooltip("Solo deja pasar los golpes que se parecen a la huella aprendida (rechaza el bleed de otros instrumentos).");
 
     auto wireSampler = [this](DecimuPillButton& pill, float value)
     {
@@ -163,6 +172,82 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     hintLabel.setColour(juce::Label::textColourId, DecimuColours::textMuted);
     hintLabel.setJustificationType(juce::Justification::topLeft);
     addAndMakeVisible(hintLabel);
+
+    // ---- Huella ----
+    learnPill.setClickingTogglesState(false);
+    learnPill.setTooltip("Toca solo el instrumento (unos 8 a 12 golpes) y apreta de nuevo para cerrar.");
+    learnPill.onClick = [this]
+    {
+        if (processorRef.isLearning()) processorRef.stopLearning();
+        else                           processorRef.startLearning();
+    };
+    addAndMakeVisible(learnPill);
+
+    clearPrintPill.setClickingTogglesState(false);
+    clearPrintPill.onClick = [this] { processorRef.clearFingerprint(); };
+    addAndMakeVisible(clearPrintPill);
+
+    addAndMakeVisible(fingerprintView);
+
+    printStatus.setFont(juce::Font(juce::FontOptions(11.0f)));
+    printStatus.setColour(juce::Label::textColourId, DecimuColours::textMuted);
+    printStatus.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(printStatus);
+
+    // ---- Captura ----
+    recPill.setClickingTogglesState(false);
+    recPill.setTooltip("Graba cada golpe detectado (con un poco de lo que habia antes del ataque).");
+    recPill.onClick = [this] { processorRef.setCapturing(!processorRef.isCapturing()); };
+    addAndMakeVisible(recPill);
+
+    makePill.setClickingTogglesState(false);
+    makePill.setTooltip("Reparte los golpes grabados en capas por velocity y alternancias, los guarda como "
+                        "WAV y los carga en el reproductor.");
+    makePill.onClick = [this]
+    {
+        const auto result = processorRef.exportTakes(captureName.getText(),
+                                                     (int) std::lround(processorRef.apvts.getRawParameterValue(ParamIDs::capLayers)->load()),
+                                                     (int) std::lround(processorRef.apvts.getRawParameterValue(ParamIDs::capRR)->load()));
+        exportMessage = result.message;
+        if (result.folder != juce::File())
+            lastExportFolder = result.folder;
+        if (result.files > 0)
+            setParam(ParamIDs::sampler, 2.0f);
+    };
+    addAndMakeVisible(makePill);
+
+    clearTakesPill.setClickingTogglesState(false);
+    clearTakesPill.onClick = [this]
+    {
+        processorRef.clearTakes();
+        exportMessage = {};
+    };
+    addAndMakeVisible(clearTakesPill);
+
+    openFolderPill.setClickingTogglesState(false);
+    openFolderPill.onClick = [this]
+    {
+        if (lastExportFolder.isDirectory())
+            lastExportFolder.revealToUser();
+    };
+    addAndMakeVisible(openFolderPill);
+
+    captureName.setText("Golpe", juce::dontSendNotification);
+    captureName.setColour(juce::TextEditor::backgroundColourId, DecimuColours::background);
+    captureName.setColour(juce::TextEditor::textColourId, DecimuColours::text);
+    captureName.setColour(juce::TextEditor::outlineColourId, DecimuColours::textMuted.withAlpha(0.5f));
+    captureName.setTooltip("Prefijo de los archivos que se crean (ej. Caja)");
+    addAndMakeVisible(captureName);
+
+    captureNameLabel.setText("NOMBRE", juce::dontSendNotification);
+    captureNameLabel.setFont(juce::Font(juce::FontOptions(11.0f)));
+    captureNameLabel.setColour(juce::Label::textColourId, DecimuColours::textMuted);
+    addAndMakeVisible(captureNameLabel);
+
+    captureStatus.setFont(juce::Font(juce::FontOptions(11.0f)));
+    captureStatus.setColour(juce::Label::textColourId, DecimuColours::textMuted);
+    captureStatus.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(captureStatus);
 
     // ---- Muestras ----
     for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)
@@ -207,6 +292,7 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     listenAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::listen, listenPill);
     alignAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::align, alignPill);
     chokeAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::choke, chokePill);
+    rejectAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::fingerprint, rejectPill);
 
     // El monitor arranca limpio: descarta lo que quedó en la cola mientras no había editor.
     {
@@ -215,9 +301,9 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     }
     lastHitCount = processorRef.hitCount.load();
 
-    setSize(1100, 790);
+    setSize(1100, 850);
     setResizable(true, true);
-    setResizeLimits(980, 720, 1800, 1100);
+    setResizeLimits(980, 790, 1800, 1200);
     startTimerHz(30);
 }
 
@@ -329,6 +415,8 @@ void DecimulTriggerEditor::paint(juce::Graphics& g)
     DecimuChrome::paintCompartment(g, detectRect.toFloat(), true, 8.0f);
     DecimuChrome::paintCompartment(g, velocityRect.toFloat(), false, 8.0f);
     DecimuChrome::paintCompartment(g, midiRect.toFloat(), true, 8.0f);
+    DecimuChrome::paintCompartment(g, printRect.toFloat(), false, 8.0f);
+    DecimuChrome::paintCompartment(g, captureRect.toFloat(), true, 8.0f);
     DecimuChrome::paintCompartment(g, samplerRect.toFloat(), false, 8.0f);
     DecimuChrome::paintCompartment(g, outputRect.toFloat(), true, 8.0f);
 
@@ -377,17 +465,17 @@ void DecimulTriggerEditor::resized()
     content.removeFromRight(gap);
 
     // ---- Monitor + lectura ----
-    scopeRect = content.removeFromTop(228);
+    scopeRect = content.removeFromTop(200);
     {
         auto area = scopeRect.reduced(8);
-        readout.setBounds(area.removeFromRight(200));
+        readout.setBounds(area.removeFromRight(210));
         area.removeFromRight(8);
         scope.setBounds(area);
     }
     content.removeFromTop(gap);
 
     // ---- Fila de knobs: detección | velocity | MIDI ----
-    auto knobsRow = content.removeFromTop(150);
+    auto knobsRow = content.removeFromTop(146);
     detectRect = knobsRow.removeFromLeft(knobsRow.getWidth() * 6 / 12);
     knobsRow.removeFromLeft(gap);
     velocityRect = knobsRow.removeFromLeft((knobsRow.getWidth() - gap) / 2);
@@ -415,6 +503,62 @@ void DecimulTriggerEditor::resized()
 
     content.removeFromTop(gap);
 
+    // ---- Huella | Captura ----
+    auto midRow = content.removeFromTop(142);
+    printRect = midRow.removeFromLeft(380);
+    midRow.removeFromLeft(gap);
+    captureRect = midRow;
+    content.removeFromTop(gap);
+
+    {
+        auto area = printRect.reduced(8, 6);
+        printLabel.setBounds(area.removeFromTop(16));
+        auto pills = area.removeFromTop(26);
+        const int pw = (pills.getWidth() - 12) / 3;
+        learnPill.setBounds(pills.removeFromLeft(pw));
+        pills.removeFromLeft(6);
+        clearPrintPill.setBounds(pills.removeFromLeft(pw));
+        pills.removeFromLeft(6);
+        rejectPill.setBounds(pills);
+        area.removeFromTop(4);
+
+        auto knobs = area.removeFromLeft(138);
+        placeKnob(matchKnob, knobs.removeFromLeft(69).reduced(1));
+        placeKnob(fpWindowKnob, knobs.reduced(1));
+        area.removeFromLeft(6);
+        printStatus.setBounds(area.removeFromBottom(30));
+        area.removeFromBottom(2);
+        fingerprintView.setBounds(area);
+    }
+
+    {
+        auto area = captureRect.reduced(8, 6);
+        captureLabel.setBounds(area.removeFromTop(16));
+        auto pills = area.removeFromTop(26);
+        const int pw = (pills.getWidth() - 18) / 4;
+        recPill.setBounds(pills.removeFromLeft(pw));
+        pills.removeFromLeft(6);
+        makePill.setBounds(pills.removeFromLeft(pw));
+        pills.removeFromLeft(6);
+        clearTakesPill.setBounds(pills.removeFromLeft(pw));
+        pills.removeFromLeft(6);
+        openFolderPill.setBounds(pills);
+        area.removeFromTop(4);
+
+        auto nameCell = area.removeFromLeft(130);
+        captureNameLabel.setBounds(nameCell.removeFromTop(14));
+        captureName.setBounds(nameCell.removeFromTop(26));
+        area.removeFromLeft(8);
+
+        auto knobs = area.removeFromLeft(210);
+        const int kw = knobs.getWidth() / 3;
+        placeKnob(capLengthKnob, knobs.removeFromLeft(kw).reduced(1));
+        placeKnob(capLayersKnob, knobs.removeFromLeft(kw).reduced(1));
+        placeKnob(capRRKnob, knobs.reduced(1));
+        area.removeFromLeft(8);
+        captureStatus.setBounds(area);
+    }
+
     // ---- Reproductor propio ----
     samplerRect = content;
     {
@@ -435,23 +579,23 @@ void DecimulTriggerEditor::resized()
         samplerReplacePill.setBounds(modes);
         left.removeFromTop(6);
 
-        auto knobs = left.removeFromTop(104);
+        auto knobs = left.removeFromTop(84);
         const int kw = knobs.getWidth() / 3;
         placeKnob(sampleLevelKnob, knobs.removeFromLeft(kw).reduced(2));
         placeKnob(origLevelKnob, knobs.removeFromLeft(kw).reduced(2));
         placeKnob(velSensKnob, knobs.reduced(2));
-        left.removeFromTop(6);
+        left.removeFromTop(4);
 
         auto toggles = left.removeFromTop(28);
         const int tw = (toggles.getWidth() - 6) / 2;
         alignPill.setBounds(toggles.removeFromLeft(tw));
         toggles.removeFromLeft(6);
         chokePill.setBounds(toggles);
-        left.removeFromTop(6);
+        left.removeFromTop(4);
         hintLabel.setBounds(left);
 
         const int colW = (area.getWidth() - 12) / 2;
-        const int rowH = std::min(46, area.getHeight() / 4);
+        const int rowH = std::min(46, std::max(30, (area.getHeight() - 18) / 4));
         for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)
         {
             const int col = i / 4, row = i % 4;
@@ -471,10 +615,37 @@ void DecimulTriggerEditor::resized()
         outputMeter.setBounds(col.removeFromLeft(16));
         outputSlider.setBounds(col);
     }
-
 }
 
 // ------------------------------- Timer -------------------------------
+
+void DecimulTriggerEditor::refreshCaptureStatus()
+{
+    std::vector<int> velocities;
+    processorRef.getTakeVelocities(velocities);
+
+    juce::String text;
+    if (processorRef.isCapturing())
+        text = "GRABANDO...\n";
+    else
+        text = juce::String();
+
+    if (velocities.empty())
+    {
+        text += "Sin golpes grabados. Apreta GRABAR GOLPES y toca (o pasa tu pista).";
+    }
+    else
+    {
+        const auto [lo, hi] = std::minmax_element(velocities.begin(), velocities.end());
+        text += juce::String((int) velocities.size()) + " golpes grabados (velocity " + juce::String(*lo) + " a "
+              + juce::String(*hi) + ")";
+    }
+
+    if (exportMessage.isNotEmpty())
+        text += "\n" + exportMessage;
+
+    captureStatus.setText(text, juce::dontSendNotification);
+}
 
 void DecimulTriggerEditor::timerCallback()
 {
@@ -507,9 +678,51 @@ void DecimulTriggerEditor::timerCallback()
     }
     hitFlash = std::max(0.0f, hitFlash - 0.12f);
 
+    const bool fingerprintOn = get(ParamIDs::fingerprint) > 0.5f;
     const int note = (int) std::lround(get(ParamIDs::note));
-    readout.setState(processorRef.lastVelocity.load(), juce::MidiMessage::getMidiNoteName(note, true, true, 4),
-                     hits, hitFlash);
+
+    HitReadout::State rs;
+    rs.velocity = processorRef.lastVelocity.load();
+    rs.noteName = juce::MidiMessage::getMidiNoteName(note, true, true, 4);
+    rs.hits = hits;
+    rs.rejected = processorRef.rejectedCount.load();
+    rs.similarity = processorRef.lastSimilarity.load();
+    rs.fingerprintOn = fingerprintOn;
+    rs.flash = hitFlash;
+    readout.setState(rs);
+
+    // Huella
+    const bool learning = processorRef.isLearning();
+    FingerprintBank::Vector tpl {}, last {};
+    processorRef.getFingerprint(tpl);
+    const bool lastOk = processorRef.getLastHitVector(last);
+    fingerprintView.setData(tpl, processorRef.hasFingerprint(), last, lastOk, learning);
+
+    learnPill.setToggleState(learning, juce::dontSendNotification);
+    learnPill.setButtonText(learning ? "CERRAR (" + juce::String(processorRef.getLearnedHits()) + ")"
+                                     : juce::String("APRENDER"));
+
+    juce::String printText;
+    if (learning)
+        printText = "Aprendiendo: toca solo este instrumento (cierra sola a los 24).";
+    else if (processorRef.hasFingerprint())
+        printText = "Huella de " + juce::String(processorRef.getFingerprintHits()) + " golpes - "
+                  + (fingerprintOn ? "rechazando bleed" : "apagada");
+    else
+        printText = "Sin huella.";
+    printStatus.setText(printText, juce::dontSendNotification);
+
+    const bool printUsable = processorRef.hasFingerprint();
+    matchKnob.slider.setAlpha(printUsable ? 1.0f : 0.45f);
+    matchKnob.label.setAlpha(printUsable ? 1.0f : 0.45f);
+    clearPrintPill.setAlpha(printUsable ? 1.0f : 0.5f);
+
+    // Captura
+    recPill.setToggleState(processorRef.isCapturing(), juce::dontSendNotification);
+    recPill.setButtonText(processorRef.isCapturing() ? "PARAR (" + juce::String(processorRef.getTakeCount()) + ")"
+                                                    : juce::String("GRABAR GOLPES"));
+    openFolderPill.setAlpha(lastExportFolder.isDirectory() ? 1.0f : 0.45f);
+    refreshCaptureStatus();
 
     // Muestras
     for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)

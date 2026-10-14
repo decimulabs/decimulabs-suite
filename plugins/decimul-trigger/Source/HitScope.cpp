@@ -104,21 +104,24 @@ void HitScope::paint(juce::Graphics& g)
         g.fillRect(x, y, std::max(1.0f, colW), a.getBottom() - y);
     }
 
-    // ---- Golpes ----
+    // ---- Golpes (rojos) y rechazados (grises) ----
     for (int i = 0; i < count; ++i)
     {
         const auto& f = history[(size_t) i];
-        if (f.velocity <= 0)
+        if (f.velocity == 0)
             continue;
 
+        const bool rejected = f.velocity < 0;
+        const int velocity = std::abs(f.velocity);
         const float x = x0 + (float) i * colW;
-        const float h = (float) f.velocity / 127.0f * (a.getHeight() - 20.0f);
+        const float h = (float) velocity / 127.0f * (a.getHeight() - 20.0f);
 
-        g.setColour(DecimuColours::accentRec);
+        g.setColour(rejected ? DecimuColours::textMuted : DecimuColours::accentRec);
         g.fillRect(x - 1.0f, a.getBottom() - h, 3.0f, h);
         g.setFont(hudFont(*this, 15.0f));
-        g.setColour(DecimuColours::text);
-        g.drawText(juce::String(f.velocity), juce::Rectangle<float>(x - 16.0f, a.getBottom() - h - 16.0f, 34.0f, 14.0f),
+        g.setColour(rejected ? DecimuColours::textMuted : DecimuColours::text);
+        g.drawText(rejected ? juce::String("x") : juce::String(velocity),
+                   juce::Rectangle<float>(x - 16.0f, a.getBottom() - h - 16.0f, 34.0f, 14.0f),
                    juce::Justification::centred);
     }
 
@@ -181,14 +184,13 @@ void HitScope::mouseUp(const juce::MouseEvent&)
 
 // ============================== HitReadout ==============================
 
-void HitReadout::setState(int newVelocity, const juce::String& newNote, int newHits, float newFlash)
+void HitReadout::setState(const State& s)
 {
-    if (newVelocity != velocity || newNote != noteName || newHits != hits || std::abs(newFlash - flash) > 0.02f)
+    if (s.velocity != state.velocity || s.noteName != state.noteName || s.hits != state.hits
+        || s.rejected != state.rejected || std::abs(s.similarity - state.similarity) > 0.004f
+        || s.fingerprintOn != state.fingerprintOn || std::abs(s.flash - state.flash) > 0.02f)
     {
-        velocity = newVelocity;
-        noteName = newNote;
-        hits = newHits;
-        flash = newFlash;
+        state = s;
         repaint();
     }
 }
@@ -199,33 +201,108 @@ void HitReadout::paint(juce::Graphics& g)
     g.setColour(DecimuColours::trackFill);
     g.fillRoundedRectangle(b, 6.0f);
 
-    if (flash > 0.0f)
+    if (state.flash > 0.0f)
     {
-        g.setColour(DecimuColours::accentRec.withAlpha(0.35f * flash));
+        g.setColour(DecimuColours::accentRec.withAlpha(0.35f * state.flash));
         g.fillRoundedRectangle(b, 6.0f);
     }
 
-    auto area = b.reduced(12.0f, 10.0f);
+    auto area = b.reduced(12.0f, 8.0f);
     g.setColour(DecimuColours::textMuted);
     g.setFont(hudFont(*this, 16.0f));
     g.drawText("ULTIMO GOLPE", area.removeFromTop(18.0f), juce::Justification::centred);
 
-    g.setColour(velocity > 0 ? DecimuColours::accentPrimary : DecimuColours::textMuted);
-    g.setFont(hudFont(*this, 74.0f));
-    g.drawText(velocity > 0 ? juce::String(velocity) : juce::String("--"), area.removeFromTop(78.0f),
+    g.setColour(state.velocity > 0 ? DecimuColours::accentPrimary : DecimuColours::textMuted);
+    g.setFont(hudFont(*this, 66.0f));
+    g.drawText(state.velocity > 0 ? juce::String(state.velocity) : juce::String("--"), area.removeFromTop(66.0f),
                juce::Justification::centred);
 
     g.setColour(DecimuColours::textMuted);
     g.setFont(hudFont(*this, 16.0f));
-    g.drawText("VELOCITY  /  " + noteName, area.removeFromTop(20.0f), juce::Justification::centred);
+    g.drawText("VELOCITY  /  " + state.noteName, area.removeFromTop(18.0f), juce::Justification::centred);
 
-    auto bar = area.removeFromTop(14.0f).reduced(6.0f, 0.0f);
+    auto bar = area.removeFromTop(12.0f).reduced(6.0f, 0.0f);
     g.setColour(DecimuColours::background);
     g.fillRoundedRectangle(bar, 3.0f);
     g.setColour(DecimuColours::accentPrimary);
-    g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * (float) velocity / 127.0f), 3.0f);
+    g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * (float) state.velocity / 127.0f), 3.0f);
 
-    area.removeFromTop(8.0f);
+    area.removeFromTop(6.0f);
     g.setColour(DecimuColours::textMuted);
-    g.drawText("GOLPES: " + juce::String(hits), area.removeFromTop(18.0f), juce::Justification::centred);
+    g.drawText("GOLPES: " + juce::String(state.hits), area.removeFromTop(16.0f), juce::Justification::centred);
+
+    if (state.fingerprintOn)
+    {
+        const juce::String sim = state.similarity >= 0.0f ? juce::String(state.similarity, 2) : juce::String("--");
+        g.drawText("PARECIDO " + sim + "   RECHAZ. " + juce::String(state.rejected),
+                   area.removeFromTop(16.0f), juce::Justification::centred);
+    }
+}
+
+// ============================ FingerprintView ============================
+
+void FingerprintView::setData(const FingerprintBank::Vector& templateVector, bool templateValid,
+                              const FingerprintBank::Vector& lastVector, bool lastValid, bool learning)
+{
+    tpl = templateVector;
+    tplValid = templateValid;
+    last = lastVector;
+    lastOk = lastValid;
+    isLearning = learning;
+    repaint();
+}
+
+void FingerprintView::paint(juce::Graphics& g)
+{
+    auto b = getLocalBounds().toFloat();
+    g.setColour(DecimuColours::trackFill);
+    g.fillRoundedRectangle(b, 6.0f);
+
+    auto area = b.reduced(8.0f, 6.0f);
+    area.removeFromBottom(14.0f);
+
+    if (!tplValid && !isLearning && !lastOk)
+    {
+        g.setColour(DecimuColours::textMuted);
+        g.setFont(hudFont(*this, 14.0f));
+        g.drawFittedText("SIN HUELLA: toca solo el instrumento y apreta APRENDER", b.reduced(8.0f).toNearestInt(),
+                         juce::Justification::centred, 3);
+        return;
+    }
+
+    const int n = FingerprintBank::numBands;
+    float maxV = 0.0001f;
+    for (int k = 0; k < n; ++k)
+    {
+        maxV = std::max(maxV, tpl[(size_t) k]);
+        if (lastOk)
+            maxV = std::max(maxV, last[(size_t) k]);
+    }
+
+    const float slot = area.getWidth() / (float) n;
+    for (int k = 0; k < n; ++k)
+    {
+        const float x = area.getX() + (float) k * slot;
+
+        if (tplValid)
+        {
+            const float h = tpl[(size_t) k] / maxV * area.getHeight();
+            g.setColour(DecimuColours::accentPrimary.withAlpha(0.75f));
+            g.fillRect(x + 2.0f, area.getBottom() - h, slot - 4.0f, h);
+        }
+        if (lastOk)
+        {
+            const float y = area.getBottom() - last[(size_t) k] / maxV * area.getHeight();
+            g.setColour(DecimuColours::text);
+            g.fillRect(x + 1.0f, y - 1.5f, slot - 2.0f, 3.0f);
+        }
+    }
+
+    g.setColour(DecimuColours::textMuted);
+    g.setFont(hudFont(*this, 12.0f));
+    auto labels = b.reduced(8.0f, 0.0f).removeFromBottom(14.0f);
+    g.drawText("90 Hz", labels, juce::Justification::centredLeft);
+    g.drawText("11 kHz", labels, juce::Justification::centredRight);
+    if (isLearning)
+        g.drawText("APRENDIENDO", labels, juce::Justification::centred);
 }

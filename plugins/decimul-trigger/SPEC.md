@@ -2,24 +2,35 @@
 
 Trigger de batería: detecta los golpes del audio de entrada, **mide su intensidad** y los
 convierte en notas MIDI con velocity; opcionalmente reproduce muestras propias (capas
-por velocity y round-robin) para reforzar o reemplazar el golpe original.
+por velocity y round-robin) para reforzar o reemplazar el golpe original. Puede
+**rechazar el bleed** por parecido con una huella aprendida y **grabar tus golpes
+reales** para armar las muestras.
 
 El nombre es provisorio ("Trigger"): se cambia en `CMakeLists.txt` (`PRODUCT_NAME`) y en
 los textos de la UI.
 
-Inspirado en la categoría de triggers/replacers de batería: *Retrig* (Isindi Sound),
-*Slate Trigger*, *Drumagog*, *KTDrumTrigger* y los métodos de Reaper (ReaGate +
+Inspirado en la categoría de triggers/replacers de batería: *Retrig* y *Remiq* (Isindi
+Sound), *Slate Trigger*, *Drumagog*, *KTDrumTrigger* y los métodos de Reaper (ReaGate +
 control de velocity, JSFX "Audio to MIDI Drum Trigger"). Implementación propia con
 nombre, interfaz y código propios.
+
+## Versiones
+
+| | Qué suma |
+|---|---|
+| **v0.1** | Audio → MIDI con velocity: detector, intensidad medida en una ventana de scan, curva, umbral, anti-rebote, filtros de detección, sidechain, monitor de golpes. |
+| **v0.2** | Reproductor propio: 8 muestras con rango de velocity, round-robin, modos Reforzar/Reemplazar, cortar anterior y alinear el original (latencia informada al host). |
+| **v0.3** | **Huella del golpe**: aprende la forma espectral del instrumento y rechaza los golpes que no se parecen (bleed). |
+| **v0.4** | **Captura**: graba cada golpe aceptado y arma muestras repartidas en capas por velocity y alternancias, ya cargadas en el reproductor. |
 
 ## Qué hace
 
 ```
-audio (o sidechain) → mono → pasa-altos / pasa-bajos → detector de golpes
-                                                         │
-                       ┌─────────────────────────────────┤
-                       ▼                                 ▼
-          MIDI: nota + velocity                  reproductor propio (opcional)
+audio (o sidechain) → mono → pasa-altos / pasa-bajos → detector de golpes ──┐
+                                   │                                         │
+                                   └── banco de 12 bandas (huella) ──────────┤ ¿se parece?
+                                                                             ▼
+                          MIDI: nota + velocity    reproductor propio    captura de tomas
                                                          │
 audio original ──(retraso opcional)──► mezcla ◄──────────┘
 ```
@@ -30,12 +41,25 @@ audio original ──(retraso opcional)──► mezcla ◄───────
 | Intensidad | El pico de la señal de detección durante la ventana `Scan` (0.5–10 ms, por defecto 2) después del ataque. Es lo que da la velocity. |
 | Velocity | `Threshold` (dB) = `Vel Min`, `Max Level` (dB) = `Vel Max`, con una curva (`Curva`: negativa = los suaves suenan más fuertes, positiva = más dinámica). Opción de velocity fija. |
 | Filtros | `Low Cut` / `High Cut` de la señal de detección, para que el detector mire solo la banda del instrumento (ayuda con el bleed). `Oír detección` deja escuchar esa señal. |
-| MIDI | Nota, canal y largo de nota configurables. El note-on sale en el instante en que termina la medición; el note-off a los `Largo nota` ms. |
+| **Huella** | Banco de 12 filtros pasa-banda (90 Hz - 11 kHz, geométricos). En la ventana de análisis que sigue al ataque acumula la energía de cada banda y la convierte en un vector unitario de forma espectral (energía^0.25 por banda, para que las bandas débiles pesen). La comparación con la huella aprendida es el coseno: 1 = misma forma. **Aprender** promedia los golpes que lleguen (hasta 24; se cierra a mano o sola); **Rechazar bleed** deja pasar solo los que superan `Parecido mín.` (por defecto 0.80). Como el vector se normaliza, un golpe suave del mismo instrumento pasa igual: cuenta la forma, no el volumen. Los rechazados se ven en gris en el monitor y se cuentan. |
+| Ventana de la huella | `Ventana` (4–30 ms, por defecto 12). Con el rechazo activado (o aprendiendo) el golpe se decide recién cuando termina esa ventana, así que el MIDI sale ese tiempo después del ataque; con `Alinear original` el audio se retrasa lo mismo y la latencia se informa al host. **Si cambiás la ventana, volvé a aprender la huella.** |
+| MIDI | Nota, canal y largo de nota configurables. El note-on sale en el instante en que termina la decisión; el note-off a los `Largo nota` ms. |
 | Sidechain | Si se activa el bus de sidechain del plugin en el DAW, la detección mira esa señal (para disparar desde otra pista); si no, mira la propia entrada. |
 | Reproductor | 8 muestras (wav/aiff/flac/mp3/ogg, hasta 10 s), cada una con su rango de velocity. Entre las que incluyen la velocity del golpe, se turnan en round-robin (la que hace más tiempo que no suena). 16 voces. `Vel > Volumen` define cuánto sigue el volumen a la velocity. `Cortar anterior` apaga las voces previas con un fade de 4 ms. |
 | Modos | **Solo MIDI** (el audio pasa como está), **Reforzar** (original + muestra, con `Original` como nivel del original) o **Reemplazar** (se silencia el original). |
-| Alinear original | Retrasa el audio original lo que dura la medición y lo informa como latencia al host (PDC), así el original coincide con el MIDI y con la muestra (importante para reforzar sin que se "peine"). |
-| Monitor | Cuatro segundos de historia del nivel con cada golpe marcado por una barra de su velocity. Las líneas de umbral y de nivel máximo se **arrastran con el mouse**. |
+| Alinear original | Retrasa el audio original lo que dura la decisión y lo informa como latencia al host (PDC), así el original coincide con el MIDI y con la muestra (importante para reforzar sin que se "peine"). |
+| **Captura** | Con `Grabar golpes` activado, cada golpe aceptado (pasó el umbral y, si está activada, la huella) se guarda con 3 ms de lo que había antes del ataque, hasta `Largo` (100–1000 ms), cortado donde empieza el golpe siguiente o cuando la señal cae a -66 dBFS por 40 ms. Hasta 64 tomas por sesión. |
+| **Crear muestras** | Ordena las tomas por velocity, las reparte en `Capas` (1–4) por cuantiles, elige en cada capa las `Alternan.` (1–4) más cercanas a la mediana (capas × alternancias ≤ 8), recorta la cola de silencio, aplica fades de 1 ms y 5 ms y las escribe como WAV de 24 bits en `Documentos/DecimuLabs Trigger/<Nombre>_<fecha>/` (`Nombre_L2_RR1_v87.wav`). Las carga en el reproductor con rangos de velocity que cubren 1–127 sin huecos ni solapes y pasa a modo Reemplazar. |
+| Monitor | Cuatro segundos de historia del nivel con cada golpe marcado por una barra de su velocity (gris y tachado si lo rechazó la huella). Las líneas de umbral y de nivel máximo se **arrastran con el mouse**. |
+
+### Flujo típico para armar muestras desde una pista grabada
+
+1. Poné el plugin en la pista de la batería (o en la de la caja) y mirá el monitor:
+   arrastrá `Threshold` justo sobre el ruido.
+2. **Aprender** la caja: dejá que suenen unos 8–12 golpes solos y cerrá.
+3. **Rechazar bleed** activado: en el monitor se ven en gris los golpes de hi-hat y bombo.
+4. **Grabar golpes** y reproducí la canción entera.
+5. **Crear muestras**: ya quedan armadas, cargadas y listas para Reforzar/Reemplazar.
 
 ## Parámetros (APVTS, automatizables)
 
@@ -47,6 +71,9 @@ audio original ──(retraso opcional)──► mezcla ◄───────
 | `retrigger` | Retrigger | ms | 5..250 | 35 |
 | `lowCut` / `highCut` | Low Cut / High Cut | Hz | 20..500 / 1k..20k | 60 / 14k |
 | `listen` | Oír detección | bool | — | off |
+| `fingerprint` | Rechazar bleed | bool | — | off |
+| `match` | Parecido mín. | float | 0.30..0.99 | 0.80 |
+| `fpWindow` | Ventana | ms | 4..30 | 12 |
 | `minVel` / `maxVel` | Vel Min / Vel Max | int | 1..127 | 20 / 127 |
 | `curve` | Curva | float | -1..+1 | 0 |
 | `fixedVel` | Velocity fija | bool | — | off |
@@ -59,46 +86,44 @@ audio original ──(retraso opcional)──► mezcla ◄───────
 | `velSens` | Vel > Volumen | % | 0..100 | 60 |
 | `align` | Alinear original | bool | — | off |
 | `choke` | Cortar anterior | bool | — | off |
+| `capLength` | Largo (captura) | ms | 100..1000 | 500 |
+| `capLayers` | Capas | int | 1..4 | 3 |
+| `capRR` | Alternan. | int | 1..4 | 2 |
 | `outputTrim` | Output | dB | -24..+12 | 0 |
 | `bypass` | Bypass | bool | — | off |
 
-Las muestras (archivos y rangos de velocity) se guardan en el estado del plugin.
-
-## Cómo se usa (Reaper)
-
-1. Poné el plugin en la pista de la batería (o de un solo instrumento: caja, bombo…).
-2. Mirá el monitor mientras tocás y arrastrá la línea **Threshold** hasta que quede justo
-   arriba del ruido/bleed y debajo de los golpes más suaves. **Max Level** es el nivel
-   del golpe más fuerte (el que quiere ser velocity 127).
-3. **MIDI**: en la misma pista, a continuación del plugin, poné un sampler o un drum
-   plugin: recibe las notas. O con sends de MIDI a otra pista.
-4. **Sin otro plugin**: elegí Reforzar o Reemplazar, arrastrá muestras a las filas y
-   repartilas por rango de velocity.
+Fuera del APVTS: las muestras (archivos y rangos de velocity) y la huella aprendida, que
+se guardan en el estado del plugin; y las tomas grabadas, que viven solo en memoria (se
+conservan al crear las muestras en la carpeta).
 
 ## Límites conocidos (honesto)
 
-- **El MIDI sale después del ataque**: la intensidad se mide durante `Scan` ms, así que la
-  nota llega ~2 ms después del golpe (el valor por defecto). Con `Alinear original` el
-  audio se retrasa lo mismo y todo queda coincidente a costa de esa latencia.
-- **El bleed no se resuelve solo**: los filtros Low/High Cut y el umbral ayudan, pero si
-  el hi-hat entra fuerte en el micrófono de la caja, hay que subir el umbral. Detectar por
-  "huella" (rechazar lo que no se parece al golpe buscado) es la próxima mejora.
+- **El MIDI sale después del ataque**: la intensidad se mide durante `Scan` ms (2 ms por
+  defecto); con el rechazo de bleed activado, durante la ventana de la huella (12 ms por
+  defecto). Con `Alinear original` el audio se retrasa lo mismo y todo queda coincidente
+  a costa de esa latencia.
+- **La huella distingue instrumentos de forma espectral distinta**, no golpes parecidos:
+  caja contra hi-hat o contra bombo sí; caja contra un tom de timbre similar, no. Para
+  eso hay que subir el umbral o mandar cada instrumento a su instancia.
 - **Un solo canal de detección por instancia** (mono): una instancia por instrumento.
 - **La salida MIDI de un plugin de audio** funciona en Reaper (pasa al plugin que sigue en
   la cadena o por sends); otros DAW (Ableton, FL) no la rutean igual. Para eso está el
   reproductor propio.
+- **La captura** guarda lo que entra: con bleed fuerte detrás del golpe, las muestras
+  lo llevan. La huella ayuda a no grabar golpes de otro instrumento, pero no limpia el
+  bleed que acompaña al golpe correcto.
 - La velocity depende de la calidad del audio de entrada: un micrófono con mucho bleed
   da velocities menos confiables que un disparador de pad.
+- Máximo 64 tomas por sesión y 1 s por toma (memoria reservada la primera vez que se
+  activa la captura, ~25 MB a 48 kHz).
 - Sin tests dentro de un DAW real todavía; el motor se valida con
   `tests/EngineTest.cpp` (golpes sintéticos).
 
 ## Próximos pasos
 
-- **v0.3 — huella del golpe**: modo "aprender" (guarda el espectro de unos golpes) para
-  rechazar bleed por parecido.
-- **v0.4 — captura**: grabar los golpes reales de tu batería y partirlos en muestras
-  por velocity y round-robin, listas para el reproductor.
 - Detección estéreo con selección de canal, y por banda (bombo + toms en la misma pista).
+- Normalizar niveles dentro de cada capa al crear las muestras (opcional).
+- Huella por golpe individual (varios instrumentos en una instancia, cada uno a su nota).
 
 ## Compilar y testear
 

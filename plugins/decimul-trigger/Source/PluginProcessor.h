@@ -7,6 +7,7 @@
 #include <atomic>
 #include <memory>
 #include "HitDetector.h"
+#include "SpectralFingerprint.h"
 
 namespace ParamIDs
 {
@@ -18,6 +19,10 @@ namespace ParamIDs
     static const juce::String lowCut      = "lowCut";       // Hz: pasa-altos de la señal de detección
     static const juce::String highCut     = "highCut";      // Hz: pasa-bajos de la señal de detección
     static const juce::String listen      = "listen";       // oír la señal de detección (para ajustar)
+    // Huella (rechazo de bleed)
+    static const juce::String fingerprint = "fingerprint";  // rechazar los golpes que no se parecen a la huella
+    static const juce::String match       = "match";        // parecido mínimo (0..1)
+    static const juce::String fpWindow    = "fpWindow";     // ms: ventana de análisis de la huella
     // Velocity
     static const juce::String minVel      = "minVel";
     static const juce::String maxVel      = "maxVel";
@@ -34,6 +39,10 @@ namespace ParamIDs
     static const juce::String velSens     = "velSens";      // % cuánto sigue el volumen a la velocity
     static const juce::String align       = "align";        // retrasa el original para que coincida
     static const juce::String choke       = "choke";        // un golpe nuevo corta los anteriores
+    // Captura
+    static const juce::String capLength   = "capLength";    // ms: largo máximo de cada golpe grabado
+    static const juce::String capLayers   = "capLayers";    // capas de velocity al crear las muestras
+    static const juce::String capRR       = "capRR";        // alternancias (round-robin) por capa
     // Salida
     static const juce::String outputTrim  = "outputTrim";
     static const juce::String bypass      = "bypass";
@@ -51,11 +60,17 @@ struct TriggerSample
     muestras propias (capas por velocity y round-robin) para reforzar o reemplazar el
     golpe original.
 
+    - v0.3 **Huella**: aprende la forma espectral de los golpes del instrumento y
+      rechaza los que no se le parecen (el bleed de otros instrumentos).
+    - v0.4 **Captura**: graba cada golpe aceptado y arma con ellos muestras repartidas
+      en capas por velocity y round-robin, que carga en el reproductor.
+
     Hilos:
-    - Audio thread: detección, MIDI, voces del reproductor.
+    - Audio thread: detección, MIDI, voces del reproductor, aprendizaje y grabación.
     - Message thread: carga de muestras (en un hilo de fondo, resultado por AsyncUpdater),
-      UI. El audio thread agarra las muestras con un try-lock y nunca libera memoria: las
-      muestras reemplazadas se guardan unos segundos en `retired`.
+      armado y escritura de las muestras capturadas, UI. El audio thread agarra las
+      muestras con un try-lock y nunca libera memoria: las muestras reemplazadas se
+      guardan unos segundos en `retired`.
 */
 class DecimulTriggerProcessor : public juce::AudioProcessor,
                                  private juce::AsyncUpdater,
@@ -64,6 +79,7 @@ class DecimulTriggerProcessor : public juce::AudioProcessor,
 public:
     static constexpr int numSlots = 8;
     static constexpr int maxVoices = 16;
+    static constexpr int maxTakes = 64;
     static constexpr double maxSampleSeconds = 10.0;
     enum SamplerMode { samplerOff = 0, samplerReinforce = 1, samplerReplace = 2 };
 
@@ -115,11 +131,49 @@ public:
     void setVelocityRange(int slot, int lo, int hi);
     void getVelocityRange(int slot, int& lo, int& hi) const;
 
+    // ---------------- Huella (message thread) ----------------
+    /** Empieza a aprender: la huella pasa a ser el promedio de los golpes que lleguen
+        hasta `stopLearning()` (o hasta 24 golpes). Mientras aprende no se rechaza nada. */
+    void startLearning() { learnCommand.store(1); }
+    void stopLearning() { learnCommand.store(2); }
+    void clearFingerprint() { learnCommand.store(3); }
+
+    bool isLearning() const { return learning.load(); }
+    int getLearnedHits() const { return learnedHits.load(); }
+    bool hasFingerprint() const { return templateValid.load(); }
+    int getFingerprintHits() const { return templateHits.load(); }
+    void getFingerprint(FingerprintBank::Vector& out) const;
+    bool getLastHitVector(FingerprintBank::Vector& out) const;
+
+    std::atomic<float> lastSimilarity { -1.0f };   // parecido del último golpe con la huella (-1 = sin dato)
+    std::atomic<int> rejectedCount { 0 };
+
+    // ---------------- Captura (message thread) ----------------
+    void setCapturing(bool shouldCapture);
+    bool isCapturing() const { return capturing.load(); }
+    int getTakeCount() const { return takeCount.load(); }
+    void clearTakes();
+    void getTakeVelocities(std::vector<int>& out) const;
+
+    struct ExportResult
+    {
+        int files = 0;
+        juce::File folder;
+        juce::String message;
+    };
+
+    /** Arma las muestras con los golpes capturados: las reparte en `layers` capas de
+        velocity con `roundRobin` alternancias cada una (layers * roundRobin <= 8), las
+        escribe como WAV de 24 bits y las carga en el reproductor con sus rangos. Los
+        archivos van a `rootFolder` (por defecto Documentos/DecimuLabs Trigger). */
+    ExportResult exportTakes(const juce::String& baseName, int layers, int roundRobin,
+                             const juce::File& rootFolder = {});
+
     // ---------------- Monitor de golpes (para la UI) ----------------
     struct ScopeFrame
     {
         float level = 0.0f;     // pico lineal de la señal de detección en el cuadro
-        int velocity = 0;       // > 0 si en este cuadro se emitió un golpe
+        int velocity = 0;       // > 0: golpe emitido; < 0: golpe rechazado por la huella
     };
     static constexpr int scopeFramesPerSecond = 200;
 
@@ -139,6 +193,8 @@ private:
     void startLoading(int slot, const juce::File& file);
     void updateFilters(float lowHz, float highHz);
     void updateReportedLatency();
+    void commitFingerprint();
+    int decisionSamplesFor(int scanSamples, bool fingerprintOn, int fpWindowSamples) const;
 
     struct LoadResult
     {
@@ -163,6 +219,15 @@ private:
 
     struct PendingOff { juce::int64 due; int note; int channel; };
 
+    struct Take
+    {
+        std::vector<float> l, r;
+        int length = 0;
+        int preRoll = 0;
+        int velocity = 0;
+        float peak = 0.0f;
+    };
+
     double currentSampleRate = 44100.0;
     std::atomic<bool> reloadAllRequested { false };
     std::atomic<bool> shuttingDown { false };
@@ -171,6 +236,19 @@ private:
     HitDetector detector;
     DetectionBiquad detHighpass, detLowpass;
     float lastLowCut = -1.0f, lastHighCut = -1.0f;
+
+    // --- Huella ---
+    FingerprintBank bank;
+    std::atomic<int> learnCommand { 0 };                      // 1 empezar, 2 cerrar, 3 borrar
+    std::atomic<bool> learning { false };
+    std::atomic<int> learnedHits { 0 };
+    std::array<std::atomic<float>, FingerprintBank::numBands> templateVec;
+    std::atomic<bool> templateValid { false };
+    std::atomic<int> templateHits { 0 };
+    std::array<std::atomic<float>, FingerprintBank::numBands> lastVec;
+    std::atomic<bool> lastVecValid { false };
+    std::array<double, FingerprintBank::numBands> learnSum {};   // solo audio thread
+    int learnCount = 0;
 
     // --- Retardo del audio original (modo align) ---
     static constexpr int delayBufferSize = 1 << 14;
@@ -207,6 +285,18 @@ private:
     std::vector<LoadResult> pendingResults;
     std::vector<std::pair<int, juce::File>> pendingLoadRequests;
     juce::ThreadPool loaderPool { 1 };
+
+    // --- Captura ---
+    static constexpr int capRingSize = 1 << 13;
+    std::vector<Take> takes;                                 // se reserva una vez (message thread)
+    int takeCapacity = 0;
+    std::atomic<bool> capturing { false };
+    std::atomic<int> takeCount { 0 };
+    std::atomic<int> blockCounter { 0 };
+    std::vector<float> capRingL, capRingR;
+    int capWrite = 0;
+    int recTake = -1;                                        // toma en grabación (audio thread)
+    int recQuiet = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulTriggerProcessor)
 };
