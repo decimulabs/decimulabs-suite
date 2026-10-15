@@ -39,6 +39,15 @@ void HitScope::setMaxLevelDb(float db)
     }
 }
 
+void HitScope::setCalibration(float progress)
+{
+    if (std::abs(progress - calibration) > 0.004f)
+    {
+        calibration = progress;
+        repaint();
+    }
+}
+
 juce::Rectangle<float> HitScope::plotArea() const
 {
     return getLocalBounds().toFloat().reduced(10.0f, 10.0f).withTrimmedLeft(30.0f);
@@ -140,7 +149,25 @@ void HitScope::paint(juce::Graphics& g)
     drawLine(thresholdDb, "THRESHOLD", DecimuColours::accentRec, hoverLine == 0 || dragLine == 0);
     drawLine(maxLevelDb, "MAX LEVEL", DecimuColours::text, hoverLine == 1 || dragLine == 1);
 
-    if (count == 0)
+    if (calibration >= 0.0f)
+    {
+        auto banner = a.withSizeKeepingCentre(std::min(a.getWidth() - 40.0f, 560.0f), 46.0f).withY(a.getY() + 8.0f);
+        g.setColour(DecimuColours::background.withAlpha(0.88f));
+        g.fillRoundedRectangle(banner, 6.0f);
+        g.setColour(accent);
+        g.drawRoundedRectangle(banner, 6.0f, 1.4f);
+
+        g.setFont(hudFont(*this, 17.0f));
+        g.drawText("CALIBRANDO - TOCA GOLPES DE SUAVE A FUERTE", banner.withTrimmedBottom(14.0f), juce::Justification::centred);
+
+        auto inner = banner.reduced(12.0f, 0.0f);
+        auto bar = inner.removeFromBottom(14.0f).reduced(0.0f, 4.0f);
+        g.setColour(DecimuColours::trackFill);
+        g.fillRoundedRectangle(bar, 2.0f);
+        g.setColour(accent);
+        g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * std::clamp(calibration, 0.0f, 1.0f)), 2.0f);
+    }
+    else if (count == 0)
     {
         g.setColour(DecimuColours::textMuted);
         g.setFont(hudFont(*this, 18.0f));

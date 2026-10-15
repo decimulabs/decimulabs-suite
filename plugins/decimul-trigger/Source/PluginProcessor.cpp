@@ -12,6 +12,25 @@ namespace
     constexpr int capMask = (1 << 13) - 1;
     constexpr int maxLearnHits = 24;
     constexpr float quietLevel = 5.0e-4f;       // -66 dBFS: debajo de esto, el golpe "terminó"
+
+    // Lectura con interpolación cúbica (Hermite de 4 puntos) para afinar las muestras.
+    // En posiciones enteras devuelve la muestra exacta.
+    inline float readInterpolated(const float* x, int length, double pos)
+    {
+        const int i0 = (int) pos;
+        const float t = (float) (pos - (double) i0);
+        const int im1 = std::max(i0 - 1, 0);
+        const int i1 = std::min(i0 + 1, length - 1);
+        const int i2 = std::min(i0 + 2, length - 1);
+
+        const float xm1 = x[im1], x0 = x[i0], x1 = x[i1], x2 = x[i2];
+        const float c = (x1 - xm1) * 0.5f;
+        const float v = x0 - x1;
+        const float w = c + v;
+        const float a = w + v + (x2 - x0) * 0.5f;
+        const float b = w + a;
+        return ((a * t - b) * t + c) * t + x0;
+    }
 }
 
 DecimulTriggerProcessor::DecimulTriggerProcessor()
@@ -23,6 +42,8 @@ DecimulTriggerProcessor::DecimulTriggerProcessor()
 {
     for (auto& v : velLo) v.store(1);
     for (auto& v : velHi) v.store(127);
+    for (auto& v : slotGainDb) v.store(0.0f);
+    for (auto& v : slotTuneSt) v.store(0.0f);
     for (auto& t : loadToken) t.store(0);
     for (auto& v : templateVec) v.store(0.0f);
     for (auto& v : lastVec) v.store(0.0f);
@@ -67,6 +88,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulTriggerProcessor::cre
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::highCut), "High Cut", NormalisableRange<float>(1000.0f, 20000.0f, 1.0f, 0.4f), 14000.0f, hzAttr));
     params.push_back(std::make_unique<AudioParameterBool>(pid(ParamIDs::listen), "Listen Detection", false));
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::onset), "Attack Rise", NormalisableRange<float>(1.0f, 12.0f, 0.1f), 5.1f, dbAttr));
 
     // Huella
     params.push_back(std::make_unique<AudioParameterBool>(pid(ParamIDs::fingerprint), "Reject Bleed", false));
@@ -90,6 +113,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulTriggerProcessor::cre
     params.push_back(std::make_unique<AudioParameterInt>(pid(ParamIDs::channel), "Channel", 1, 16, 10));
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::noteLen), "Note Length", NormalisableRange<float>(5.0f, 500.0f, 1.0f, 0.5f), 40.0f, msAttr));
+    params.push_back(std::make_unique<AudioParameterChoice>(
+        pid(ParamIDs::midiIn), "MIDI In", StringArray { "Off", "Note", "Any" }, 0));
 
     // Reproductor propio
     params.push_back(std::make_unique<AudioParameterChoice>(
@@ -103,6 +128,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulTriggerProcessor::cre
         AudioParameterFloatAttributes().withLabel("%")));
     params.push_back(std::make_unique<AudioParameterBool>(pid(ParamIDs::align), "Align Original", false));
     params.push_back(std::make_unique<AudioParameterBool>(pid(ParamIDs::choke), "Choke", false));
+    params.push_back(std::make_unique<AudioParameterBool>(pid(ParamIDs::polarity), "Invert Polarity", false));
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::sampleOffset), "Sample Offset", NormalisableRange<float>(-10.0f, 10.0f, 0.1f), 0.0f, msAttr));
 
     // Captura
     params.push_back(std::make_unique<AudioParameterFloat>(
@@ -140,7 +168,22 @@ void DecimulTriggerProcessor::prepareToPlay(double sampleRate, int)
     const bool rateChanged = std::abs(sampleRate - currentSampleRate) > 0.5;
     currentSampleRate = sampleRate;
 
+    if (rateChanged && takeCapacity != 0)
+    {
+        // prepareToPlay no corre a la vez que processBlock: se puede soltar la memoria.
+        capturing.store(false);
+        midiRecording.store(false);
+        takes.clear();
+        takes.shrink_to_fit();
+        takeCapacity = 0;
+        takeCount.store(0);
+        recHitCount.store(0);
+    }
+
+    passThroughMidi.ensureSize(4096);
     detector.prepare(sampleRate);
+    calDetector.prepare(sampleRate);
+    calibrating.store(false);
     bank.prepare(sampleRate);
     detHighpass.reset();
     detLowpass.reset();
@@ -250,16 +293,49 @@ bool DecimulTriggerProcessor::getLastHitVector(FingerprintBank::Vector& out) con
 void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    midi.clear();   // este plugin genera el MIDI: no deja pasar el que venga
 
     const int n = buffer.getNumSamples();
     auto main = getBusBuffer(buffer, true, 0);
+
+    auto get = [this](const juce::String& id) { return apvts.getRawParameterValue(id)->load(); };
+
+    const int note = (int) std::lround(get(ParamIDs::note));
+    const int channel = (int) std::lround(get(ParamIDs::channel));
+
+    // MIDI de entrada: las notas que disparan el reproductor propio se consumen; todo lo
+    // demás pasa de largo (con MIDI in apagado no se toca nada, igual que cuando el plugin
+    // no aceptaba MIDI). Las notas generadas por este plugin se suman al final.
+    struct InNote { int pos; int velocity; };
+    std::array<InNote, 64> inNotes {};
+    int inCount = 0;
+    int inIndex = 0;
+
+    const int midiInMode = (int) std::lround(get(ParamIDs::midiIn));
+    const int samplerMode = (int) std::lround(get(ParamIDs::sampler));
+    if (midiInMode != midiInOff && samplerMode != samplerOff && n > 0 && get(ParamIDs::bypass) < 0.5f)
+    {
+        passThroughMidi.clear();
+        for (const auto meta : midi)
+        {
+            const auto m = meta.getMessage();
+            const bool consumed = (m.isNoteOn() || m.isNoteOff())
+                                  && (midiInMode == midiInAny || m.getNoteNumber() == note);
+            if (!consumed)
+            {
+                passThroughMidi.addEvent(m, meta.samplePosition);
+            }
+            else if (m.isNoteOn() && inCount < (int) inNotes.size())
+            {
+                inNotes[(size_t) inCount++] = { juce::jlimit(0, n - 1, meta.samplePosition), (int) m.getVelocity() };
+            }
+        }
+        midi.swapWith(passThroughMidi);
+    }
+
     if (n <= 0 || main.getNumChannels() < 1)
         return;
 
     blockCounter.fetch_add(1);
-
-    auto get = [this](const juce::String& id) { return apvts.getRawParameterValue(id)->load(); };
 
     // ---- Órdenes de la UI para la huella ----
     if (const int cmd = learnCommand.exchange(0); cmd != 0)
@@ -286,6 +362,24 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
             learnCount = 0;
             learnSum.fill(0.0);
             lastSimilarity.store(-1.0f);
+        }
+    }
+
+    // ---- Orden de calibración ----
+    if (const int cmd = calibrateCommand.exchange(0); cmd != 0)
+    {
+        if (cmd == 1)
+        {
+            calHist.fill(0);
+            calMaxPeak = 0.0f;
+            calHitCount = 0;
+            calDetector.reset();
+            calFramesLeft.store(calFramesTotal);
+            calibrating.store(true);
+        }
+        else
+        {
+            calibrating.store(false);
         }
     }
 
@@ -327,16 +421,15 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     const int minVel = (int) std::lround(get(ParamIDs::minVel));
     const int maxVel = (int) std::lround(get(ParamIDs::maxVel));
     const bool fixedVel = get(ParamIDs::fixedVel) > 0.5f;
-    const int note = (int) std::lround(get(ParamIDs::note));
-    const int channel = (int) std::lround(get(ParamIDs::channel));
     const bool listen = get(ParamIDs::listen) > 0.5f;
-    const int samplerMode = (int) std::lround(get(ParamIDs::sampler));
     const bool align = get(ParamIDs::align) > 0.5f;
     const bool choke = get(ParamIDs::choke) > 0.5f;
     const bool fingerprintOn = get(ParamIDs::fingerprint) > 0.5f;
     const float matchThreshold = get(ParamIDs::match);
+    const float polaritySign = get(ParamIDs::polarity) > 0.5f ? -1.0f : 1.0f;
 
     const double sr = currentSampleRate;
+    const double offsetSamples = (double) get(ParamIDs::sampleOffset) * 0.001 * sr;
     const int scanSamples = std::max(1, (int) std::lround((double) get(ParamIDs::scan) * 0.001 * sr));
     const int fpSamples = (int) std::lround((double) get(ParamIDs::fpWindow) * 0.001 * sr);
     // Aprender y comparar tienen que usar la misma ventana de análisis, si no la huella
@@ -353,6 +446,14 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     dp.extraSamples = decisionSamples - scanSamples;
     dp.lockoutSamples = std::max(1, (int) std::lround((double) retriggerMs * 0.001 * sr));
     dp.maskDecay = std::exp(-1.0f / (retriggerMs * 0.001f * (float) sr));
+    dp.onsetRatio = juce::Decibels::decibelsToGain(get(ParamIDs::onset));
+
+    // La calibración mira con su propio detector: umbral casi en el piso (-60 dB), sin
+    // ventana extra, así encuentra los golpes aunque el umbral actual esté mal puesto.
+    HitDetector::Params calParams = dp;
+    calParams.thresholdLin = juce::Decibels::decibelsToGain(-60.0f);
+    calParams.extraSamples = 0;
+    bool calActive = calibrating.load();
 
     // El original se retrasa lo que tarda la decisión, así el MIDI/sample coincide con él.
     // (La latencia se le avisa al host desde el message thread: ver updateReportedLatency.)
@@ -373,6 +474,55 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     const int recMaxLen = std::min(takeCapacity, (int) std::lround((double) get(ParamIDs::capLength) * 0.001 * sr));
     const int quietLimit = std::max(1, (int) (0.040 * sr));
     const int preRollSamples = std::max(1, (int) std::lround(0.003 * sr));
+
+    // MIDI grabado: reloj en negras (ppq) de este bloque. Con transporte andando se toma
+    // la posición del host; parado (o sin host) el reloj sigue solo desde donde estaba.
+    const bool recNow = midiRecording.load() && !recHits.empty();
+    double recPpqPerSample = 0.0, recBlockPpq = 0.0;
+    if (recNow)
+    {
+        juce::Optional<juce::AudioPlayHead::PositionInfo> info;
+        if (auto* head = getPlayHead())
+            info = head->getPosition();
+
+        double bpm = lastHostBpm.load();
+        double hostPpq = 0.0;
+        bool havePpq = false, playing = false;
+        if (info.hasValue())
+        {
+            if (const auto b = info->getBpm(); b.hasValue() && *b > 1.0)
+                bpm = *b;
+            if (const auto p = info->getPpqPosition(); p.hasValue())
+            {
+                hostPpq = *p;
+                havePpq = true;
+            }
+            if (const auto ts = info->getTimeSignature(); ts.hasValue())
+            {
+                hostTimeSigNum.store(ts->numerator);
+                hostTimeSigDen.store(ts->denominator);
+            }
+            playing = info->getIsPlaying();
+        }
+        lastHostBpm.store(bpm);
+        recPpqPerSample = bpm / (60.0 * sr);
+
+        if (!wasRecordingMidi)
+        {
+            recPpqClock = havePpq ? hostPpq : 0.0;
+            wasRecordingMidi = true;
+        }
+        else if (playing && havePpq)
+        {
+            recPpqClock = hostPpq;
+        }
+        recBlockPpq = recPpqClock;
+        recPpqClock += (double) n * recPpqPerSample;
+    }
+    else
+    {
+        wasRecordingMidi = false;
+    }
 
     // Las muestras no se pueden cambiar mientras este bloque las usa. Si el message
     // thread las está intercambiando justo ahora, este bloque no las reproduce.
@@ -409,8 +559,15 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
             for (auto& v : voices)
                 if (v.active && v.fadeLeft == 0)
                 {
-                    v.fadeTotal = chokeFade;
-                    v.fadeLeft = chokeFade;
+                    if (v.startDelay > 0)
+                    {
+                        v.active = false;        // todavía no había arrancado: se descarta
+                    }
+                    else
+                    {
+                        v.fadeTotal = chokeFade;
+                        v.fadeLeft = chokeFade;
+                    }
                 }
 
         Voice* target = nullptr;
@@ -429,15 +586,30 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         }
 
         const auto& audio = slots[(size_t) best]->audio;
+        const double rate = std::exp2((double) slotTuneSt[(size_t) best].load() / 12.0);
+        const float slotGain = juce::Decibels::decibelsToGain(slotGainDb[(size_t) best].load());
+
         target->left = audio.getReadPointer(0);
         target->right = audio.getNumChannels() > 1 ? audio.getReadPointer(1) : audio.getReadPointer(0);
         target->length = audio.getNumSamples();
-        target->pos = 0;
-        target->gain = sampleGain * ((1.0f - velAmount) + velAmount * ((float) velocity / 127.0f));
+        target->rate = (float) rate;
+
+        // Desfase contra el original: positivo = la muestra arranca más tarde; negativo =
+        // se salta el comienzo de la muestra (no se puede sonar antes de la decisión).
+        target->pos = 0.0;
+        target->startDelay = 0;
+        if (offsetSamples >= 0.0)
+            target->startDelay = (int) std::lround(offsetSamples);
+        else
+            target->pos = -offsetSamples * rate;
+
+        target->gain = polaritySign * sampleGain * slotGain
+                     * ((1.0f - velAmount) + velAmount * ((float) velocity / 127.0f));
         target->fadeLeft = 0;
         target->order = ++tickCounter;
         target->active = true;
         lastSlotPlayed.store(best);
+        voiceCount.fetch_add(1);
     };
 
     auto closeTake = [&]
@@ -455,6 +627,13 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     {
         const float inL = L[i];
         const float inR = R[i];
+
+        // MIDI de entrada: dispara el reproductor en la muestra exacta del evento
+        while (inIndex < inCount && inNotes[(size_t) inIndex].pos <= i)
+        {
+            startVoice(inNotes[(size_t) inIndex].velocity);
+            ++inIndex;
+        }
 
         // Detección: mono, pasa-banda
         float d = 0.5f * (detL[i] + detR[i]);
@@ -480,6 +659,17 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         const bool onset = detector.justStarted();
         if (onset)
             bank.begin();
+
+        // Calibración: el pico de cada golpe que oye el detector del piso
+        if (calActive)
+        {
+            float calPeak = 0.0f;
+            if (calDetector.process(d, calParams, calPeak))
+            {
+                calMaxPeak = std::max(calMaxPeak, calPeak);
+                ++calHitCount;
+            }
+        }
 
         // Un ataque nuevo corta la toma que se estaba grabando
         if (onset)
@@ -550,6 +740,18 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
                 hitCount.fetch_add(1);
                 scopeFrameVelocity = std::max(scopeFrameVelocity, velocity);
 
+                // MIDI grabado: el golpe va a la posición de su ataque (no de la decisión)
+                if (recNow)
+                {
+                    const int c = recHitCount.load();
+                    if (c < (int) recHits.size())
+                    {
+                        const double ppq = recBlockPpq + (double) (i - decisionSamples) * recPpqPerSample;
+                        recHits[(size_t) c] = { std::max(0.0, ppq), velocity, note, channel };
+                        recHitCount.store(c + 1);
+                    }
+                }
+
                 // Captura: arranca una toma con lo que había antes del ataque
                 if (capNow && takeCapacity > 0 && recTake < 0 && takeCount.load() < maxTakes)
                 {
@@ -619,7 +821,13 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
             if (!v.active)
                 continue;
 
-            if (v.pos >= v.length)
+            if (v.startDelay > 0)       // desfase positivo: todavía no arrancó
+            {
+                --v.startDelay;
+                continue;
+            }
+
+            if (v.pos >= (double) v.length)
             {
                 v.active = false;
                 continue;
@@ -633,9 +841,11 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
                     v.active = false;
             }
 
-            sL += v.left[v.pos] * g;
-            sR += v.right[v.pos] * g;
-            ++v.pos;
+            const float xl = readInterpolated(v.left, v.length, v.pos);
+            const float xr = v.right == v.left ? xl : readInterpolated(v.right, v.length, v.pos);
+            sL += xl * g;
+            sR += xr * g;
+            v.pos += (double) v.rate;
         }
 
         float outL = origL * origGain + sL;
@@ -658,6 +868,20 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
                 scopeBuffer[(size_t) start1] = { scopeFramePeak, scopeFrameVelocity };
                 scopeFifo.finishedWrite(1);
             }
+
+            // Calibración: un cuadro más en el histograma de picos
+            if (calActive)
+            {
+                const int bin = std::clamp((int) std::lround(20.0f * std::log10(std::max(scopeFramePeak, 1.0e-6f))) + 90,
+                                           0, (int) calHist.size() - 1);
+                ++calHist[(size_t) bin];
+                if (calFramesLeft.fetch_sub(1) <= 1)
+                {
+                    computeCalibrationResult();
+                    calActive = false;
+                }
+            }
+
             scopeFrameLeft = scopeFrameSamples;
             scopeFramePeak = 0.0f;
             scopeFrameVelocity = 0;
@@ -684,6 +908,18 @@ int DecimulTriggerProcessor::readScopeFrames(ScopeFrame* dest, int maxFrames)
 
 // =============================== Captura ===============================
 
+// Espera a que el audio thread haya pasado por un par de bloques: ya vio los flags nuevos
+// y cerró lo que tenía abierto (una toma, un golpe grabado).
+void DecimulTriggerProcessor::waitForAudioThread()
+{
+    const int before = blockCounter.load();
+    const auto deadline = juce::Time::getMillisecondCounter() + 250;
+    while (blockCounter.load() < before + 2 && juce::Time::getMillisecondCounter() < deadline)
+        juce::Thread::sleep(5);
+}
+
+// "Grabar golpes" graba a la vez las tomas de audio (para armar muestras) y la posición
+// de cada golpe (para exportar el MIDI).
 void DecimulTriggerProcessor::setCapturing(bool shouldCapture)
 {
     if (shouldCapture)
@@ -701,24 +937,154 @@ void DecimulTriggerProcessor::setCapturing(bool shouldCapture)
             }
             takeCapacity = capacity;
         }
+        if (recHits.empty())
+            recHits.assign((size_t) maxRecordedHits, RecordedHit {});
+
+        midiRecording.store(true);
         capturing.store(true);
         return;
     }
 
-    if (!capturing.exchange(false))
-        return;
+    const bool wasCapturing = capturing.exchange(false);
+    const bool wasRecordingHits = midiRecording.exchange(false);
+    if (wasCapturing || wasRecordingHits)
+        waitForAudioThread();
+}
 
-    // Espera a que el audio thread haya pasado por un bloque y cerrado la toma abierta.
-    const int before = blockCounter.load();
-    const auto deadline = juce::Time::getMillisecondCounter() + 250;
-    while (blockCounter.load() < before + 2 && juce::Time::getMillisecondCounter() < deadline)
-        juce::Thread::sleep(5);
+void DecimulTriggerProcessor::setMidiRecording(bool shouldRecord)
+{
+    if (shouldRecord)
+    {
+        if (recHits.empty())
+            recHits.assign((size_t) maxRecordedHits, RecordedHit {});
+        midiRecording.store(true);
+        return;
+    }
+
+    if (midiRecording.exchange(false))
+        waitForAudioThread();
+}
+
+void DecimulTriggerProcessor::clearRecordedMidi()
+{
+    setMidiRecording(false);
+    recHitCount.store(0);
 }
 
 void DecimulTriggerProcessor::clearTakes()
 {
     setCapturing(false);
     takeCount.store(0);
+    recHitCount.store(0);
+}
+
+DecimulTriggerProcessor::MidiExportResult DecimulTriggerProcessor::exportRecordedMidi(const juce::String& baseName,
+                                                                                       const juce::File& rootFolder)
+{
+    MidiExportResult result;
+    setCapturing(false);
+
+    const int count = std::min(recHitCount.load(), (int) recHits.size());
+    if (count <= 0)
+    {
+        result.message = "No hay golpes grabados todavia.";
+        return result;
+    }
+
+    std::vector<RecordedHit> hits(recHits.begin(), recHits.begin() + count);
+    std::stable_sort(hits.begin(), hits.end(), [](const RecordedHit& a, const RecordedHit& b) { return a.ppq < b.ppq; });
+
+    constexpr int ticksPerQuarter = 960;
+    const double bpm = std::clamp(lastHostBpm.load(), 20.0, 400.0);
+
+    const int sigNum = std::clamp(hostTimeSigNum.load(), 1, 32);
+    int sigDen = hostTimeSigDen.load();
+    if (sigDen != 1 && sigDen != 2 && sigDen != 4 && sigDen != 8 && sigDen != 16 && sigDen != 32)
+        sigDen = 4;
+    const double beatsPerBar = (double) sigNum * 4.0 / (double) sigDen;
+
+    // El archivo empieza al comienzo del compás del primer golpe; startBar dice dónde soltarlo.
+    const double firstBar = std::floor(hits.front().ppq / beatsPerBar);
+    const double origin = firstBar * beatsPerBar;
+
+    // Largo de cada nota: el configurado (mínimo una fusa), sin pisar al golpe siguiente de la misma nota.
+    const double noteLenMs = (double) apvts.getRawParameterValue(ParamIDs::noteLen)->load();
+    const double wantedLen = std::max(0.125, noteLenMs * 0.001 * bpm / 60.0);
+    const double oneTick = 1.0 / (double) ticksPerQuarter;
+
+    std::vector<double> lengths((size_t) count, wantedLen);
+    std::vector<double> nextOn(16 * 128, std::numeric_limits<double>::infinity());
+    for (int i = count - 1; i >= 0; --i)
+    {
+        const auto& h = hits[(size_t) i];
+        const size_t key = (size_t) (juce::jlimit(1, 16, h.channel) - 1) * 128 + (size_t) juce::jlimit(0, 127, h.note);
+        double len = wantedLen;
+        if (std::isfinite(nextOn[key]))
+            len = std::min(len, nextOn[key] - h.ppq - oneTick);
+        lengths[(size_t) i] = std::max(len, oneTick);
+        nextOn[key] = h.ppq;
+    }
+
+    const auto safeName = juce::File::createLegalFileName(baseName.isNotEmpty() ? baseName : juce::String("Golpes"));
+
+    juce::MidiMessageSequence track;
+    track.addEvent(juce::MidiMessage::textMetaEvent(3, safeName));
+    track.addEvent(juce::MidiMessage::timeSignatureMetaEvent(sigNum, sigDen));
+    track.addEvent(juce::MidiMessage::tempoMetaEvent((int) std::lround(60000000.0 / bpm)));
+
+    for (int i = 0; i < count; ++i)
+    {
+        const auto& h = hits[(size_t) i];
+        const double onTick = std::round((h.ppq - origin) * (double) ticksPerQuarter);
+        const double offTick = std::max(onTick + 1.0,
+                                        std::round((h.ppq - origin + lengths[(size_t) i]) * (double) ticksPerQuarter));
+
+        auto on = juce::MidiMessage::noteOn(juce::jlimit(1, 16, h.channel), juce::jlimit(0, 127, h.note),
+                                            (juce::uint8) juce::jlimit(1, 127, h.velocity));
+        on.setTimeStamp(onTick);
+        auto off = juce::MidiMessage::noteOff(juce::jlimit(1, 16, h.channel), juce::jlimit(0, 127, h.note));
+        off.setTimeStamp(offTick);
+        track.addEvent(on);
+        track.addEvent(off);
+    }
+    track.updateMatchedPairs();
+
+    juce::MidiFile midiFile;
+    midiFile.setTicksPerQuarterNote(ticksPerQuarter);
+    midiFile.addTrack(track);
+
+    const auto stamp = juce::Time::getCurrentTime().formatted("%Y%m%d-%H%M%S");
+    const auto root = rootFolder != juce::File()
+                          ? rootFolder
+                          : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("DecimuLabs Trigger");
+    if (!root.createDirectory().wasOk())
+    {
+        result.message = "No se pudo crear la carpeta " + root.getFullPathName();
+        return result;
+    }
+
+    const auto file = root.getChildFile(safeName + "_" + stamp + ".mid");
+    file.deleteFile();
+
+    bool written = false;
+    if (std::unique_ptr<juce::FileOutputStream> stream(file.createOutputStream()); stream != nullptr && stream->openedOk())
+    {
+        written = midiFile.writeTo(*stream, 0);
+        stream->flush();
+    }
+
+    if (!written)
+    {
+        result.message = "No se pudo escribir " + file.getFullPathName();
+        return result;
+    }
+
+    result.file = file;
+    result.hits = count;
+    result.startBar = (int) firstBar + 1;
+    result.message = juce::String(count) + " golpes MIDI a " + juce::String(bpm, 1) + " bpm: " + file.getFileName()
+                   + " (soltalo en el compas " + juce::String(result.startBar) + ")";
+    return result;
 }
 
 void DecimulTriggerProcessor::getTakeVelocities(std::vector<int>& out) const
@@ -861,6 +1227,9 @@ DecimulTriggerProcessor::ExportResult DecimulTriggerProcessor::exportTakes(const
     // Al reproductor: una muestra por archivo, con el rango de su capa.
     for (int s = 0; s < numSlots; ++s)
     {
+        setSlotGain(s, 0.0f);
+        setSlotTune(s, 0.0f);
+
         if (s < (int) files.size())
         {
             loadSample(s, files[(size_t) s]);
@@ -1027,6 +1396,9 @@ void DecimulTriggerProcessor::timerCallback()
 {
     updateReportedLatency();
 
+    if (calResultReady.exchange(false))
+        finishCalibration();
+
     const auto now = juce::Time::getMillisecondCounter();
     retired.erase(std::remove_if(retired.begin(), retired.end(),
                                  [now](const Retired& r) { return now - r.atMs > 15000; }),
@@ -1059,6 +1431,112 @@ void DecimulTriggerProcessor::getVelocityRange(int slot, int& lo, int& hi) const
     hi = velHi[(size_t) slot].load();
 }
 
+void DecimulTriggerProcessor::setSlotGain(int slot, float db)
+{
+    slotGainDb[(size_t) juce::jlimit(0, numSlots - 1, slot)].store(juce::jlimit(-24.0f, 12.0f, db));
+}
+
+float DecimulTriggerProcessor::getSlotGain(int slot) const
+{
+    return slotGainDb[(size_t) juce::jlimit(0, numSlots - 1, slot)].load();
+}
+
+void DecimulTriggerProcessor::setSlotTune(int slot, float semitones)
+{
+    slotTuneSt[(size_t) juce::jlimit(0, numSlots - 1, slot)].store(juce::jlimit(-12.0f, 12.0f, semitones));
+}
+
+float DecimulTriggerProcessor::getSlotTune(int slot) const
+{
+    return slotTuneSt[(size_t) juce::jlimit(0, numSlots - 1, slot)].load();
+}
+
+// ============================== Calibración ==============================
+
+float DecimulTriggerProcessor::getCalibrationProgress() const
+{
+    if (!calibrating.load())
+        return 0.0f;
+    return 1.0f - (float) std::max(0, calFramesLeft.load()) / (float) calFramesTotal;
+}
+
+// Audio thread, al cerrarse la ventana de calibración. Sin asignaciones de memoria.
+//   Max Level  = el golpe más fuerte que oyó, 1 dB abajo (así los más fuertes llegan a 127).
+//   Threshold  = 9 dB sobre el piso de ruido (percentil 10 de los picos por cuadro, o sea
+//                lo que hay entre golpe y golpe), pero sin pasar de 36 dB bajo el Max Level
+//                (el rango útil de una batería) ni de 6 dB bajo él.
+void DecimulTriggerProcessor::computeCalibrationResult()
+{
+    int total = 0;
+    for (int count : calHist)
+        total += count;
+
+    int floorBin = 0;
+    {
+        const int target = total / 10;
+        int accumulated = 0;
+        for (int b = 0; b < (int) calHist.size(); ++b)
+        {
+            accumulated += calHist[(size_t) b];
+            if (accumulated > target)
+            {
+                floorBin = b;
+                break;
+            }
+        }
+    }
+
+    const float floorDb = (float) (floorBin - 90);
+    const float loudestDb = calHitCount > 0 ? 20.0f * std::log10(std::max(calMaxPeak, 1.0e-9f)) : -100.0f;
+    const bool ok = calHitCount > 0 && loudestDb > -60.0f && (loudestDb - floorDb) >= 12.0f;
+
+    float maxLevel = -6.0f, threshold = -30.0f;
+    if (ok)
+    {
+        maxLevel = std::clamp(loudestDb - 1.0f, -40.0f, 0.0f);
+        threshold = std::max(floorDb + 9.0f, maxLevel - 36.0f);
+        threshold = std::clamp(threshold, -60.0f, maxLevel - 6.0f);
+    }
+
+    calFloorDb.store(floorDb);
+    calLoudestDb.store(loudestDb);
+    calHits.store(calHitCount);
+    calMaxLevelDb.store(maxLevel);
+    calThresholdDb.store(threshold);
+    calOk.store(ok);
+    calibrating.store(false);
+    calResultReady.store(true);
+}
+
+// Message thread (timer): toma el resultado y mueve los dos parámetros.
+void DecimulTriggerProcessor::finishCalibration()
+{
+    CalibrationResult r;
+    r.valid = true;
+    r.ok = calOk.load();
+    r.hits = calHits.load();
+    r.floorDb = calFloorDb.load();
+    r.loudestDb = calLoudestDb.load();
+    r.thresholdDb = calThresholdDb.load();
+    r.maxLevelDb = calMaxLevelDb.load();
+    lastCalibration = r;
+
+    if (!r.ok)
+        return;
+
+    auto setPlain = [this](const juce::String& id, float value)
+    {
+        if (auto* param = apvts.getParameter(id))
+        {
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(param->convertTo0to1(value));
+            param->endChangeGesture();
+        }
+    };
+    setPlain(ParamIDs::threshold, r.thresholdDb);
+    setPlain(ParamIDs::maxLevel, r.maxLevelDb);
+}
+
 // =============================== Estado ===============================
 
 juce::AudioProcessorEditor* DecimulTriggerProcessor::createEditor()
@@ -1082,6 +1560,8 @@ void DecimulTriggerProcessor::getStateInformation(juce::MemoryBlock& destData)
             e->setAttribute("path", slotInfo[(size_t) s].file.getFullPathName());
             e->setAttribute("lo", velLo[(size_t) s].load());
             e->setAttribute("hi", velHi[(size_t) s].load());
+            e->setAttribute("gain", (double) slotGainDb[(size_t) s].load());
+            e->setAttribute("tune", (double) slotTuneSt[(size_t) s].load());
         }
 
         if (templateValid.load())
@@ -1115,6 +1595,8 @@ void DecimulTriggerProcessor::setStateInformation(const void* data, int sizeInBy
                 continue;
 
             setVelocityRange(s, e->getIntAttribute("lo", 1), e->getIntAttribute("hi", 127));
+            setSlotGain(s, (float) e->getDoubleAttribute("gain", 0.0));
+            setSlotTune(s, (float) e->getDoubleAttribute("tune", 0.0));
 
             const juce::File file(e->getStringAttribute("path"));
             if (file != juce::File() && file.existsAsFile())

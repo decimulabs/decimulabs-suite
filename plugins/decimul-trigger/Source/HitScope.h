@@ -32,6 +32,9 @@ public:
     void setThresholdDb(float db);
     void setMaxLevelDb(float db);
 
+    /** Menor que 0: nada. De 0 a 1: avance de la calibración (muestra un cartel arriba). */
+    void setCalibration(float progress);
+
     std::function<void(float)> onThresholdDragged;
     std::function<void(float)> onMaxLevelDragged;
 
@@ -50,6 +53,7 @@ private:
     std::deque<Frame> history;
     float thresholdDb = -30.0f, maxLevelDb = -6.0f;
     int hoverLine = -1, dragLine = -1;
+    float calibration = -1.0f;
 };
 
 /** Lectura grande del último golpe: velocity, parecido con la huella y un destello. */

@@ -55,7 +55,7 @@ void TriggerSlotButton::paintButton(juce::Graphics& g, bool isMouseOver, bool)
     const juce::String line = hasError ? "ERROR AL CARGAR"
                             : loading  ? "CARGANDO..."
                             : loaded   ? name
-                                       : "vacio - click o arrastra";
+                                       : "click o arrastra";
 
     g.setColour(loaded ? DecimuColours::text : DecimuColours::textMuted);
     g.setFont(hudFont(*this, 15.0f));
@@ -117,6 +117,7 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     addKnob(retriggerKnob, ParamIDs::retrigger, "RETRIGGER");
     addKnob(lowCutKnob, ParamIDs::lowCut, "LOW CUT");
     addKnob(highCutKnob, ParamIDs::highCut, "HIGH CUT");
+    addKnob(onsetKnob, ParamIDs::onset, "ATAQUE");
     addKnob(minVelKnob, ParamIDs::minVel, "VEL MIN");
     addKnob(maxVelKnob, ParamIDs::maxVel, "VEL MAX");
     addKnob(curveKnob, ParamIDs::curve, "CURVA");
@@ -125,7 +126,8 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     addKnob(noteLenKnob, ParamIDs::noteLen, "LARGO NOTA");
     addKnob(sampleLevelKnob, ParamIDs::sampleLevel, "MUESTRAS");
     addKnob(origLevelKnob, ParamIDs::origLevel, "ORIGINAL");
-    addKnob(velSensKnob, ParamIDs::velSens, "VEL > VOLUMEN");
+    addKnob(velSensKnob, ParamIDs::velSens, "VEL>VOL");
+    addKnob(offsetKnob, ParamIDs::sampleOffset, "DESFASE");
     addKnob(matchKnob, ParamIDs::match, "PARECIDO MIN");
     addKnob(fpWindowKnob, ParamIDs::fpWindow, "VENTANA");
     addKnob(capLengthKnob, ParamIDs::capLength, "LARGO");
@@ -144,7 +146,7 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     setupSection(midiLabel, "MIDI DE SALIDA");
     setupSection(samplerLabel, "REPRODUCTOR PROPIO");
     setupSection(printLabel, "HUELLA DEL GOLPE");
-    setupSection(captureLabel, "CAPTURA DE MUESTRAS");
+    setupSection(captureLabel, "CAPTURA: MUESTRAS Y MIDI");
 
     // ---- Botones ----
     addAndMakeVisible(fixedVelPill);
@@ -157,6 +159,52 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     alignPill.setTooltip("Retrasa el audio original lo que dura la medicion, para que coincida con el MIDI y el sample.");
     chokePill.setTooltip("Cada golpe nuevo corta las muestras que seguian sonando.");
     rejectPill.setTooltip("Solo deja pasar los golpes que se parecen a la huella aprendida (rechaza el bleed de otros instrumentos).");
+
+    onsetKnob.slider.setTooltip("Cuanto tiene que subir de golpe el nivel para contar como ataque. Mas bajo = detecta golpes "
+                                "mas suaves o pegados a otros (con mas falsos); mas alto = solo ataques secos.");
+    offsetKnob.slider.setTooltip("Mueve las muestras contra el audio original. Positivo = mas tarde. Negativo = se salta el "
+                                 "comienzo de la muestra (las grabadas traen 3 ms de pre-roll: proba -3).");
+
+    addAndMakeVisible(calibratePill);
+    addAndMakeVisible(calibrateStatus);
+    addAndMakeVisible(polarityPill);
+    addAndMakeVisible(midiInPill);
+    addAndMakeVisible(exportMidiPill);
+
+    calibratePill.setClickingTogglesState(false);
+    calibratePill.setTooltip("Escucha unos 6 segundos y ajusta Threshold y Max Level solos: el nivel maximo es el del golpe "
+                             "mas fuerte que oyo y el umbral queda sobre el ruido de fondo.");
+    calibratePill.onClick = [this]
+    {
+        if (processorRef.isCalibrating()) processorRef.cancelCalibration();
+        else                              processorRef.startCalibration();
+    };
+
+    calibrateStatus.setFont(juce::Font(juce::FontOptions(10.5f)));
+    calibrateStatus.setColour(juce::Label::textColourId, DecimuColours::textMuted);
+    calibrateStatus.setJustificationType(juce::Justification::centredLeft);
+    calibrateStatus.setBorderSize(juce::BorderSize<int>(0, 4, 0, 0));
+
+    polarityPill.setTooltip("Invierte la fase de las muestras. Si al reforzar el original se anulan entre si (suena hueco), prueba esto.");
+
+    midiInPill.setClickingTogglesState(false);
+    midiInPill.setTooltip("Toca el reproductor propio con las notas MIDI que llegan al plugin. NO: ignora el MIDI. "
+                          "NOTA: solo la nota configurada. TODAS: cualquier nota. Necesita Reforzar o Reemplazar.");
+    midiInPill.onClick = [this]
+    {
+        const int mode = (int) std::lround(processorRef.apvts.getRawParameterValue(ParamIDs::midiIn)->load());
+        setParam(ParamIDs::midiIn, (float) ((mode + 1) % 3));
+    };
+
+    exportMidiPill.setClickingTogglesState(false);
+    exportMidiPill.setTooltip("Guarda los golpes grabados como archivo .mid, en la posicion que tenian en el proyecto (960 ppq).");
+    exportMidiPill.onClick = [this]
+    {
+        const auto result = processorRef.exportRecordedMidi(captureName.getText());
+        exportMessage = result.message;
+        if (result.file != juce::File())
+            lastExportTarget = result.file;
+    };
 
     auto wireSampler = [this](DecimuPillButton& pill, float value)
     {
@@ -196,7 +244,7 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
 
     // ---- Captura ----
     recPill.setClickingTogglesState(false);
-    recPill.setTooltip("Graba cada golpe detectado (con un poco de lo que habia antes del ataque).");
+    recPill.setTooltip("Graba cada golpe detectado: el audio (para armar muestras) y su posicion (para exportar MIDI).");
     recPill.onClick = [this] { processorRef.setCapturing(!processorRef.isCapturing()); };
     addAndMakeVisible(recPill);
 
@@ -210,13 +258,14 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
                                                      (int) std::lround(processorRef.apvts.getRawParameterValue(ParamIDs::capRR)->load()));
         exportMessage = result.message;
         if (result.folder != juce::File())
-            lastExportFolder = result.folder;
+            lastExportTarget = result.folder;
         if (result.files > 0)
             setParam(ParamIDs::sampler, 2.0f);
     };
     addAndMakeVisible(makePill);
 
     clearTakesPill.setClickingTogglesState(false);
+    clearTakesPill.setTooltip("Borra las tomas de audio y los golpes MIDI grabados.");
     clearTakesPill.onClick = [this]
     {
         processorRef.clearTakes();
@@ -227,8 +276,8 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     openFolderPill.setClickingTogglesState(false);
     openFolderPill.onClick = [this]
     {
-        if (lastExportFolder.isDirectory())
-            lastExportFolder.revealToUser();
+        if (lastExportTarget.exists())
+            lastExportTarget.revealToUser();
     };
     addAndMakeVisible(openFolderPill);
 
@@ -270,6 +319,21 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
             l->onTextChange = [this, i] { commitVelocityRange(i); };
             addAndMakeVisible(*l);
         }
+
+        for (auto* l : { &gainLabels[(size_t) i], &tuneLabels[(size_t) i] })
+        {
+            l->setJustificationType(juce::Justification::centred);
+            l->setColour(juce::Label::textColourId, DecimuColours::text);
+            l->setColour(juce::Label::backgroundColourId, DecimuColours::background);
+            l->setColour(juce::Label::outlineColourId, DecimuColours::textMuted.withAlpha(0.5f));
+            l->setEditable(false, true, false);
+            l->onEditorShow = [l] { if (auto* ed = l->getCurrentTextEditor()) ed->setInputRestrictions(6, "0123456789.-+"); };
+            addAndMakeVisible(*l);
+        }
+        gainLabels[(size_t) i].setTooltip("Ganancia de esta muestra en dB, de -24 a +12 (doble click para escribirla)");
+        tuneLabels[(size_t) i].setTooltip("Afinacion de esta muestra en semitonos, de -12 a +12 (doble click para escribirla)");
+        gainLabels[(size_t) i].onTextChange = [this, i] { commitSlotGain(i); };
+        tuneLabels[(size_t) i].onTextChange = [this, i] { commitSlotTune(i); };
     }
 
     // ---- Salida ----
@@ -293,6 +357,7 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     alignAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::align, alignPill);
     chokeAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::choke, chokePill);
     rejectAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::fingerprint, rejectPill);
+    polarityAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::polarity, polarityPill);
 
     // El monitor arranca limpio: descarta lo que quedó en la cola mientras no había editor.
     {
@@ -300,10 +365,11 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
         while (processorRef.readScopeFrames(discard, 256) > 0) {}
     }
     lastHitCount = processorRef.hitCount.load();
+    lastVoiceCount = processorRef.voiceCount.load();
 
-    setSize(1100, 850);
+    setSize(1180, 880);
     setResizable(true, true);
-    setResizeLimits(980, 790, 1800, 1200);
+    setResizeLimits(1100, 840, 1800, 1200);
     startTimerHz(30);
 }
 
@@ -342,6 +408,7 @@ void DecimulTriggerEditor::showSlotMenu(int slot)
     menu.addItem(1, info.loaded ? "Reemplazar por otro archivo..." : "Cargar archivo...");
     menu.addItem(2, "Quitar muestra", info.loaded || info.error.isNotEmpty());
     menu.addItem(3, "Rango de velocity completo (1-127)");
+    menu.addItem(4, "Ganancia y afinacion a cero");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, slot](int result)
     {
@@ -351,6 +418,11 @@ void DecimulTriggerEditor::showSlotMenu(int slot)
             processorRef.clearSample(slot);
         else if (result == 3)
             processorRef.setVelocityRange(slot, 1, 127);
+        else if (result == 4)
+        {
+            processorRef.setSlotGain(slot, 0.0f);
+            processorRef.setSlotTune(slot, 0.0f);
+        }
     });
 }
 
@@ -359,6 +431,18 @@ void DecimulTriggerEditor::commitVelocityRange(int slot)
     const int lo = loLabels[(size_t) slot].getText().getIntValue();
     const int hi = hiLabels[(size_t) slot].getText().getIntValue();
     processorRef.setVelocityRange(slot, lo > 0 ? lo : 1, hi > 0 ? hi : 127);
+}
+
+void DecimulTriggerEditor::commitSlotGain(int slot)
+{
+    processorRef.setSlotGain(slot, gainLabels[(size_t) slot].getText().getFloatValue());
+    gainLabels[(size_t) slot].setText(juce::String(processorRef.getSlotGain(slot), 1), juce::dontSendNotification);
+}
+
+void DecimulTriggerEditor::commitSlotTune(int slot)
+{
+    processorRef.setSlotTune(slot, tuneLabels[(size_t) slot].getText().getFloatValue());
+    tuneLabels[(size_t) slot].setText(juce::String(processorRef.getSlotTune(slot), 1), juce::dontSendNotification);
 }
 
 bool DecimulTriggerEditor::isInterestedInFileDrag(const juce::StringArray& files)
@@ -444,6 +528,11 @@ void DecimulTriggerEditor::paint(juce::Graphics& g)
     auto footer = getLocalBounds().removeFromBottom(22).reduced(16, 3);
     g.drawText("DECIMULABS - TRIGGER - GPLv3", footer, juce::Justification::centredLeft);
     g.drawText("decimulabs.com", footer, juce::Justification::centredRight);
+
+    g.setColour(DecimuColours::textMuted);
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
+    for (const auto& caption : slotCaptions)
+        g.drawText(caption.text, caption.area, juce::Justification::centred);
 }
 
 void DecimulTriggerEditor::resized()
@@ -476,28 +565,39 @@ void DecimulTriggerEditor::resized()
 
     // ---- Fila de knobs: detección | velocity | MIDI ----
     auto knobsRow = content.removeFromTop(146);
-    detectRect = knobsRow.removeFromLeft(knobsRow.getWidth() * 6 / 12);
+    detectRect = knobsRow.removeFromLeft(knobsRow.getWidth() * 7 / 13);
     knobsRow.removeFromLeft(gap);
     velocityRect = knobsRow.removeFromLeft((knobsRow.getWidth() - gap) / 2);
     knobsRow.removeFromLeft(gap);
     midiRect = knobsRow;
 
-    // Título arriba, knobs en el medio y, abajo, una franja para el botón del panel.
+    // Título arriba, knobs en el medio y, abajo, una franja para botones. Devuelve lo que
+    // queda de la franja a la derecha del botón.
     auto layoutKnobs = [this](juce::Rectangle<int> rect, juce::Label& title,
-                              std::initializer_list<Knob*> knobs, DecimuPillButton* pill)
+                              std::initializer_list<Knob*> knobs, DecimuPillButton* pill,
+                              int pillWidth = 170) -> juce::Rectangle<int>
     {
         auto area = rect.reduced(8, 6);
         title.setBounds(area.removeFromTop(16));
         auto bottom = area.removeFromBottom(26);
         if (pill != nullptr)
-            pill->setBounds(bottom.removeFromLeft(std::min(170, bottom.getWidth())).reduced(0, 1));
+            pill->setBounds(bottom.removeFromLeft(std::min(pillWidth, bottom.getWidth())).reduced(0, 1));
 
         const int w = area.getWidth() / (int) knobs.size();
         for (auto* k : knobs)
             placeKnob(*k, area.removeFromLeft(w).reduced(2));
+        return bottom;
     };
-    layoutKnobs(detectRect, detectLabel,
-                { &thresholdKnob, &maxLevelKnob, &scanKnob, &retriggerKnob, &lowCutKnob, &highCutKnob }, &listenPill);
+    {
+        auto rest = layoutKnobs(detectRect, detectLabel,
+                                { &thresholdKnob, &maxLevelKnob, &scanKnob, &retriggerKnob, &lowCutKnob, &highCutKnob,
+                                  &onsetKnob },
+                                &listenPill, 148);
+        rest.removeFromLeft(6);
+        calibratePill.setBounds(rest.removeFromLeft(std::min(116, rest.getWidth())).reduced(0, 1));
+        rest.removeFromLeft(8);
+        calibrateStatus.setBounds(rest);
+    }
     layoutKnobs(velocityRect, velocityLabel, { &minVelKnob, &maxVelKnob, &curveKnob }, &fixedVelPill);
     layoutKnobs(midiRect, midiLabel, { &noteKnob, &channelKnob, &noteLenKnob }, nullptr);
 
@@ -535,13 +635,12 @@ void DecimulTriggerEditor::resized()
         auto area = captureRect.reduced(8, 6);
         captureLabel.setBounds(area.removeFromTop(16));
         auto pills = area.removeFromTop(26);
-        const int pw = (pills.getWidth() - 18) / 4;
-        recPill.setBounds(pills.removeFromLeft(pw));
-        pills.removeFromLeft(6);
-        makePill.setBounds(pills.removeFromLeft(pw));
-        pills.removeFromLeft(6);
-        clearTakesPill.setBounds(pills.removeFromLeft(pw));
-        pills.removeFromLeft(6);
+        const int pw = (pills.getWidth() - 4 * 6) / 5;
+        for (auto* pill : { &recPill, &makePill, &exportMidiPill, &clearTakesPill })
+        {
+            pill->setBounds(pills.removeFromLeft(pw));
+            pills.removeFromLeft(6);
+        }
         openFolderPill.setBounds(pills);
         area.removeFromTop(4);
 
@@ -567,7 +666,7 @@ void DecimulTriggerEditor::resized()
         area.removeFromTop(4);
 
         // Izquierda: modo, knobs y toggles. Derecha: 8 muestras en 2 columnas.
-        auto left = area.removeFromLeft(330);
+        auto left = area.removeFromLeft(310);
         area.removeFromLeft(12);
 
         auto modes = left.removeFromTop(28);
@@ -580,10 +679,11 @@ void DecimulTriggerEditor::resized()
         left.removeFromTop(6);
 
         auto knobs = left.removeFromTop(84);
-        const int kw = knobs.getWidth() / 3;
+        const int kw = knobs.getWidth() / 4;
         placeKnob(sampleLevelKnob, knobs.removeFromLeft(kw).reduced(2));
         placeKnob(origLevelKnob, knobs.removeFromLeft(kw).reduced(2));
-        placeKnob(velSensKnob, knobs.reduced(2));
+        placeKnob(velSensKnob, knobs.removeFromLeft(kw).reduced(2));
+        placeKnob(offsetKnob, knobs.reduced(2));
         left.removeFromTop(4);
 
         auto toggles = left.removeFromTop(28);
@@ -592,19 +692,45 @@ void DecimulTriggerEditor::resized()
         toggles.removeFromLeft(6);
         chokePill.setBounds(toggles);
         left.removeFromTop(4);
+
+        auto toggles2 = left.removeFromTop(28);
+        polarityPill.setBounds(toggles2.removeFromLeft(tw));
+        toggles2.removeFromLeft(6);
+        midiInPill.setBounds(toggles2);
+        left.removeFromTop(4);
         hintLabel.setBounds(left);
 
+        // Muestras: botón, rango de velocity (lo-hi), ganancia y afinación. Arriba van los títulos.
+        slotCaptions.clear();
         const int colW = (area.getWidth() - 12) / 2;
+        const auto captionRow = area.removeFromTop(14);
         const int rowH = std::min(46, std::max(30, (area.getHeight() - 18) / 4));
         for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)
         {
             const int col = i / 4, row = i % 4;
             auto cell = juce::Rectangle<int>(area.getX() + col * (colW + 12), area.getY() + row * (rowH + 6), colW, rowH);
-            hiLabels[(size_t) i].setBounds(cell.removeFromRight(46).reduced(0, 6));
+            tuneLabels[(size_t) i].setBounds(cell.removeFromRight(46).reduced(0, 6));
             cell.removeFromRight(4);
-            loLabels[(size_t) i].setBounds(cell.removeFromRight(46).reduced(0, 6));
+            gainLabels[(size_t) i].setBounds(cell.removeFromRight(50).reduced(0, 6));
+            cell.removeFromRight(10);
+            hiLabels[(size_t) i].setBounds(cell.removeFromRight(42).reduced(0, 6));
+            cell.removeFromRight(4);
+            loLabels[(size_t) i].setBounds(cell.removeFromRight(42).reduced(0, 6));
             cell.removeFromRight(6);
             slotButtons[(size_t) i]->setBounds(cell);
+
+            if (row == 0)
+            {
+                auto caption = [&](const juce::Label& field, const juce::String& text, int widen = 0)
+                {
+                    slotCaptions.push_back({ { field.getX() - widen, captionRow.getY(), field.getWidth() + 2 * widen, captionRow.getHeight() },
+                                             text });
+                };
+                caption(loLabels[(size_t) i], "VEL LO");
+                caption(hiLabels[(size_t) i], "VEL HI");
+                caption(gainLabels[(size_t) i], "GAIN dB");
+                caption(tuneLabels[(size_t) i], "TUNE st");
+            }
         }
     }
 
@@ -623,22 +749,29 @@ void DecimulTriggerEditor::refreshCaptureStatus()
 {
     std::vector<int> velocities;
     processorRef.getTakeVelocities(velocities);
+    const int midiHits = processorRef.getRecordedMidiHits();
 
     juce::String text;
     if (processorRef.isCapturing())
         text = "GRABANDO...\n";
-    else
-        text = juce::String();
 
-    if (velocities.empty())
+    if (velocities.empty() && midiHits == 0)
     {
         text += "Sin golpes grabados. Apreta GRABAR GOLPES y toca (o pasa tu pista).";
     }
     else
     {
-        const auto [lo, hi] = std::minmax_element(velocities.begin(), velocities.end());
-        text += juce::String((int) velocities.size()) + " golpes grabados (velocity " + juce::String(*lo) + " a "
-              + juce::String(*hi) + ")";
+        if (velocities.empty())
+        {
+            text += "Sin tomas de audio";
+        }
+        else
+        {
+            const auto [lo, hi] = std::minmax_element(velocities.begin(), velocities.end());
+            text += juce::String((int) velocities.size()) + " tomas de audio (velocity " + juce::String(*lo) + " a "
+                  + juce::String(*hi) + ")";
+        }
+        text += "\n" + juce::String(midiHits) + " golpes MIDI";
     }
 
     if (exportMessage.isNotEmpty())
@@ -664,6 +797,9 @@ void DecimulTriggerEditor::timerCallback()
     }
     scope.setThresholdDb(get(ParamIDs::threshold));
     scope.setMaxLevelDb(get(ParamIDs::maxLevel));
+
+    const bool calibrating = processorRef.isCalibrating();
+    scope.setCalibration(calibrating ? processorRef.getCalibrationProgress() : -1.0f);
     scope.repaint();
 
     // Último golpe
@@ -672,11 +808,18 @@ void DecimulTriggerEditor::timerCallback()
     {
         lastHitCount = hits;
         hitFlash = 1.0f;
+    }
+    hitFlash = std::max(0.0f, hitFlash - 0.12f);
+
+    // Muestra que sonó (por un golpe o por MIDI de entrada)
+    const int voices = processorRef.voiceCount.load();
+    if (voices != lastVoiceCount)
+    {
+        lastVoiceCount = voices;
         const int s = processorRef.lastSlotPlayed.load();
         if (s >= 0 && s < DecimulTriggerProcessor::numSlots)
             slotFlash[(size_t) s] = 1.0f;
     }
-    hitFlash = std::max(0.0f, hitFlash - 0.12f);
 
     const bool fingerprintOn = get(ParamIDs::fingerprint) > 0.5f;
     const int note = (int) std::lround(get(ParamIDs::note));
@@ -690,6 +833,30 @@ void DecimulTriggerEditor::timerCallback()
     rs.fingerprintOn = fingerprintOn;
     rs.flash = hitFlash;
     readout.setState(rs);
+
+    // Calibración
+    calibratePill.setToggleState(calibrating, juce::dontSendNotification);
+    if (calibrating)
+    {
+        const int secondsLeft = (int) std::ceil((1.0f - processorRef.getCalibrationProgress()) * 6.0f);
+        calibratePill.setButtonText("CANCELAR (" + juce::String(secondsLeft) + ")");
+        calibrateStatus.setText("Toca de suave a fuerte: va midiendo el piso y el golpe mas fuerte.",
+                                juce::dontSendNotification);
+    }
+    else
+    {
+        calibratePill.setButtonText("CALIBRAR");
+        const auto cal = processorRef.getLastCalibration();
+        juce::String text;
+        if (!cal.valid)
+            text = "Toca unos 6 s (suave a fuerte) y ajusta Threshold y Max Level solo.";
+        else if (cal.ok)
+            text = "Listo: Threshold " + juce::String(cal.thresholdDb, 1) + " dB, Max Level " + juce::String(cal.maxLevelDb, 1)
+                 + " dB (" + juce::String(cal.hits) + " golpes, piso " + juce::String(cal.floorDb, 0) + " dB)";
+        else
+            text = "No oi golpes: sube el nivel de entrada o toca mas fuerte.";
+        calibrateStatus.setText(text, juce::dontSendNotification);
+    }
 
     // Huella
     const bool learning = processorRef.isLearning();
@@ -719,9 +886,11 @@ void DecimulTriggerEditor::timerCallback()
 
     // Captura
     recPill.setToggleState(processorRef.isCapturing(), juce::dontSendNotification);
-    recPill.setButtonText(processorRef.isCapturing() ? "PARAR (" + juce::String(processorRef.getTakeCount()) + ")"
+    recPill.setButtonText(processorRef.isCapturing() ? "PARAR (" + juce::String(processorRef.getRecordedMidiHits()) + ")"
                                                     : juce::String("GRABAR GOLPES"));
-    openFolderPill.setAlpha(lastExportFolder.isDirectory() ? 1.0f : 0.45f);
+    openFolderPill.setAlpha(lastExportTarget.exists() ? 1.0f : 0.45f);
+    exportMidiPill.setAlpha(processorRef.getRecordedMidiHits() > 0 ? 1.0f : 0.5f);
+    makePill.setAlpha(processorRef.getTakeCount() > 0 ? 1.0f : 0.5f);
     refreshCaptureStatus();
 
     // Muestras
@@ -738,6 +907,13 @@ void DecimulTriggerEditor::timerCallback()
             loLabels[(size_t) i].setText(juce::String(lo), juce::dontSendNotification);
         if (!hiLabels[(size_t) i].isBeingEdited())
             hiLabels[(size_t) i].setText(juce::String(hi), juce::dontSendNotification);
+
+        const float gainDb = processorRef.getSlotGain(i);
+        const float tuneSt = processorRef.getSlotTune(i);
+        if (!gainLabels[(size_t) i].isBeingEdited())
+            gainLabels[(size_t) i].setText((gainDb > 0.04f ? "+" : "") + juce::String(gainDb, 1), juce::dontSendNotification);
+        if (!tuneLabels[(size_t) i].isBeingEdited())
+            tuneLabels[(size_t) i].setText((tuneSt > 0.04f ? "+" : "") + juce::String(tuneSt, 1), juce::dontSendNotification);
     }
 
     const int mode = (int) std::lround(get(ParamIDs::sampler));
@@ -745,10 +921,17 @@ void DecimulTriggerEditor::timerCallback()
     samplerReinforcePill.setToggleState(mode == 1, juce::dontSendNotification);
     samplerReplacePill.setToggleState(mode == 2, juce::dontSendNotification);
 
+    // MIDI de entrada: el botón rota entre apagado / solo la nota configurada / cualquiera
+    const int midiInMode = (int) std::lround(get(ParamIDs::midiIn));
+    midiInPill.setToggleState(midiInMode != DecimulTriggerProcessor::midiInOff, juce::dontSendNotification);
+    midiInPill.setButtonText(midiInMode == DecimulTriggerProcessor::midiInOff    ? juce::String("MIDI IN: NO")
+                             : midiInMode == DecimulTriggerProcessor::midiInNote ? "MIDI IN: NOTA " + juce::String(note)
+                                                                                 : juce::String("MIDI IN: TODAS"));
+
     // Lo que no aplica al modo actual se apaga.
     const bool samplerOn = mode != 0;
     const bool reinforce = mode == 1;
-    for (auto* k : { &sampleLevelKnob, &velSensKnob })
+    for (auto* k : { &sampleLevelKnob, &velSensKnob, &offsetKnob })
     {
         k->slider.setAlpha(samplerOn ? 1.0f : 0.4f);
         k->label.setAlpha(samplerOn ? 1.0f : 0.4f);
@@ -756,6 +939,8 @@ void DecimulTriggerEditor::timerCallback()
     origLevelKnob.slider.setAlpha(reinforce ? 1.0f : 0.4f);
     origLevelKnob.label.setAlpha(reinforce ? 1.0f : 0.4f);
     chokePill.setAlpha(samplerOn ? 1.0f : 0.5f);
+    polarityPill.setAlpha(samplerOn ? 1.0f : 0.5f);
+    midiInPill.setAlpha(samplerOn || midiInMode == DecimulTriggerProcessor::midiInOff ? 1.0f : 0.5f);
 
     const bool fixedVel = get(ParamIDs::fixedVel) > 0.5f;
     for (auto* k : { &minVelKnob, &curveKnob, &maxLevelKnob })

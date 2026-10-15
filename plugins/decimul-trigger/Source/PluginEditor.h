@@ -76,6 +76,8 @@ private:
     void openFileChooser(int slot);
     void showSlotMenu(int slot);
     void commitVelocityRange(int slot);
+    void commitSlotGain(int slot);
+    void commitSlotTune(int slot);
     void refreshCaptureStatus();
 
     DecimulTriggerProcessor& processorRef;
@@ -86,32 +88,42 @@ private:
     juce::Rectangle<int> printRect, captureRect;
     juce::Rectangle<int> headerLogoArea;
 
+    struct SlotCaption
+    {
+        juce::Rectangle<int> area;
+        juce::String text;
+    };
+    std::vector<SlotCaption> slotCaptions;
+
     HitScope scope;
     HitReadout readout;
     FingerprintView fingerprintView;
 
-    Knob thresholdKnob, maxLevelKnob, scanKnob, retriggerKnob, lowCutKnob, highCutKnob;
+    Knob thresholdKnob, maxLevelKnob, scanKnob, retriggerKnob, lowCutKnob, highCutKnob, onsetKnob;
     Knob minVelKnob, maxVelKnob, curveKnob;
     Knob noteKnob, channelKnob, noteLenKnob;
-    Knob sampleLevelKnob, origLevelKnob, velSensKnob;
+    Knob sampleLevelKnob, origLevelKnob, velSensKnob, offsetKnob;
     Knob matchKnob, fpWindowKnob;
     Knob capLengthKnob, capLayersKnob, capRRKnob;
 
     DecimuPillButton fixedVelPill { "VELOCITY FIJA" }, listenPill { "OIR DETECCION" };
+    DecimuPillButton calibratePill { "CALIBRAR" };
+    DecimuPillButton polarityPill { "INVERTIR FASE" }, midiInPill { "MIDI IN: NO" };
+    DecimuPillButton exportMidiPill { "EXPORTAR MIDI" };
     DecimuPillButton samplerOffPill { "SOLO MIDI" }, samplerReinforcePill { "REFORZAR" }, samplerReplacePill { "REEMPLAZAR" };
     DecimuPillButton alignPill { "ALINEAR ORIGINAL" }, chokePill { "CORTAR ANTERIOR" };
     DecimuPillButton learnPill { "APRENDER" }, clearPrintPill { "BORRAR HUELLA" }, rejectPill { "RECHAZAR BLEED" };
     DecimuPillButton recPill { "GRABAR GOLPES" }, makePill { "CREAR MUESTRAS" },
-                     clearTakesPill { "BORRAR TOMAS" }, openFolderPill { "ABRIR CARPETA" };
+                     clearTakesPill { "BORRAR TODO" }, openFolderPill { "ABRIR CARPETA" };
     juce::TextEditor captureName;
-    juce::Label captureNameLabel, captureStatus, printStatus;
+    juce::Label captureNameLabel, captureStatus, printStatus, calibrateStatus;
     juce::Label detectLabel, velocityLabel, midiLabel, samplerLabel, hintLabel, outputLabel;
     juce::Label printLabel, captureLabel;
-    juce::File lastExportFolder;
+    juce::File lastExportTarget;    // carpeta de muestras o archivo .mid de la última exportación
     juce::String exportMessage;
 
     std::array<std::unique_ptr<TriggerSlotButton>, DecimulTriggerProcessor::numSlots> slotButtons;
-    std::array<juce::Label, DecimulTriggerProcessor::numSlots> loLabels, hiLabels;
+    std::array<juce::Label, DecimulTriggerProcessor::numSlots> loLabels, hiLabels, gainLabels, tuneLabels;
     std::array<float, DecimulTriggerProcessor::numSlots> slotFlash {};
 
     juce::Slider outputSlider;
@@ -122,11 +134,16 @@ private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
     std::unique_ptr<SliderAttachment> outputAttach;
-    std::unique_ptr<ButtonAttachment> bypassAttach, fixedAttach, listenAttach, alignAttach, chokeAttach, rejectAttach;
+    std::unique_ptr<ButtonAttachment> bypassAttach, fixedAttach, listenAttach, alignAttach, chokeAttach, rejectAttach,
+        polarityAttach;
 
     std::unique_ptr<juce::FileChooser> chooser;
     int lastHitCount = 0;
+    int lastVoiceCount = 0;
     float hitFlash = 0.0f;
+
+    // Sin esto los tooltips no aparecen dentro de un host.
+    juce::TooltipWindow tooltipWindow { this, 600 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulTriggerEditor)
 };
