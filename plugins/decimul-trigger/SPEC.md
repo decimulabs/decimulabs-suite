@@ -174,5 +174,5 @@ cmake -S plugins/decimul-trigger -B plugins/decimul-trigger/build -DDECIMU_TRIGG
 cmake --build plugins/decimul-trigger/build --config Release --target TriggerEngineTest
 plugins/decimul-trigger/build/TriggerEngineTest_artefacts/Release/TriggerEngineTest.exe
 # captura de la UI sin DAW
-TriggerEngineTest.exe --screenshot ruta.png
+TriggerEngineTest.exe --screenshot ruta.png            # (con --detalles al final suma lo nuevo de v0.5)
 ```

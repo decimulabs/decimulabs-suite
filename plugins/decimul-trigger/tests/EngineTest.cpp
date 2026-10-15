@@ -5,7 +5,8 @@
 // muestras, el MIDI de entrada y el MIDI exportado.
 //
 // Compilar con: cmake -DDECIMU_TRIGGER_TESTS=ON y correr TriggerEngineTest.exe.
-// Con `--screenshot ruta.png` arma una escena de demostración de la UI y la guarda.
+// Con `--screenshot ruta.png` arma una escena de demostración de la UI y la guarda
+// (`--screenshot ruta.png --detalles` suma lo nuevo de v0.5).
 
 #include "../Source/PluginProcessor.h"
 #include <cmath>
@@ -349,16 +350,19 @@ int main(int argc, char** argv)
         run(*p, x);
         p->setCapturing(false);
 
-        // Detalles de v0.5 para la captura: ganancia/afinación, polaridad, MIDI in, desfase y el
-        // cartel de calibración (arrancada hace 1.5 s).
-        p->setSlotGain(0, -3.0f);
-        p->setSlotTune(1, 2.0f);
-        setParam(*p, ParamIDs::midiIn, 1.0f);
-        setParam(*p, ParamIDs::polarity, 1.0f);
-        setParam(*p, ParamIDs::sampleOffset, -3.0f);
-        setParam(*p, ParamIDs::onset, 6.0f);
-        p->startCalibration();
-        run(*p, silence(1.5));
+        // Con un tercer argumento (--detalles) la escena muestra además lo nuevo de v0.5:
+        // ganancia/afinación, polaridad, MIDI in, desfase y el cartel de calibración.
+        if (argc >= 4 && juce::String(argv[3]) == "--detalles")
+        {
+            p->setSlotGain(0, -3.0f);
+            p->setSlotTune(1, 2.0f);
+            setParam(*p, ParamIDs::midiIn, 1.0f);
+            setParam(*p, ParamIDs::polarity, 1.0f);
+            setParam(*p, ParamIDs::sampleOffset, -3.0f);
+            setParam(*p, ParamIDs::onset, 6.0f);
+            p->startCalibration();
+            run(*p, silence(1.5));
+        }
         juce::MessageManager::getInstance()->runDispatchLoopUntil(600);
 
         const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);
