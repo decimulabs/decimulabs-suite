@@ -138,6 +138,53 @@ DecimulGapEditor::DecimulGapEditor(DecimulGapProcessor& p)
     outputAttach = std::make_unique<SliderAttachment>(processorRef.apvts, ParamIDs::outputTrim, outputSlider);
     bypassAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, ParamIDs::bypass, bypassButton);
 
+    // ---- Tooltips: inglés por defecto; el botón EN/ES de abajo los pasa a español ----
+    addAndMakeVisible(tips.getSwitch());
+
+    tips.add(curveEditor, "Pumping curve. Drag a point to move it, drag the diamond of a segment to bend it, double-click an empty spot to add a point, double-click (or right-click) a point to delete it. Hold Shift to snap to the grid.",
+             "Curva de bombeo. Arrastrá un punto para moverlo, arrastrá el rombo de un tramo para curvarlo, doble click en un lugar vacío agrega un punto, doble click (o click derecho) sobre un punto lo borra. Con Shift se pega a la grilla.");
+    tips.add(presetCombo, "Factory curves: Classic Pump, Hard Pump, Soft Pump, Tight Kick, and more. Editing the curve switches this to Custom.",
+             "Curvas de fábrica: Classic Pump, Hard Pump, Soft Pump, Tight Kick y más. Si editás la curva pasa a Custom.");
+    tips.add(prevPresetButton, "Previous preset.", "Preset anterior.");
+    tips.add(nextPresetButton, "Next preset.", "Preset siguiente.");
+    tips.add(rateCombo, "How long one cycle of the curve lasts, in musical time (1/4 = one beat, 1 bar, triplets, dotted...).",
+             "Cuánto dura un ciclo de la curva, en tiempo musical (1/4 = un beat, 1 compás, tresillos, con puntillo...).");
+
+    tips.add(depthKnob.slider, "Depth, 0 to 100 %: how far the volume dips. The dotted curve is what is really applied.",
+             "Depth, 0 a 100 %: cuánto se hunde el volumen. La curva punteada es la que realmente se aplica.");
+    tips.add(mixKnob.slider, "Mix, 0 to 100 %: dry / wet.", "Mix, 0 a 100 %: dry / wet.");
+    tips.add(smoothKnob.slider, "Smooth, 0 to 50 ms: softens the gain changes so an abrupt curve doesn't click.",
+             "Smooth, 0 a 50 ms: suaviza los cambios de ganancia para que una curva brusca no haga click.");
+    tips.add(nudgeKnob.slider, "Nudge, +/-50 ms: moves the curve earlier or later so the dip lands right on the kick. In MIDI and Audio modes only positive values apply.",
+             "Nudge, +/-50 ms: adelanta o atrasa la curva para que el hueco caiga justo con el bombo. En MIDI y Audio solo aplican valores positivos.");
+    tips.add(spreadKnob.slider, "Stereo spread: offsets the right channel against the left by up to half a cycle (ping-pong pumping). Sync mode only.",
+             "Stereo spread: desfasa el canal derecho del izquierdo hasta medio ciclo (bombeo ping-pong). Solo en modo Sync.");
+    tips.add(tempoKnob.slider, "Tempo used when there is no host (standalone). With a host the DAW tempo wins.",
+             "Tempo que se usa cuando no hay host (standalone). Con host manda el tempo del DAW.");
+
+    tips.add(trigSyncPill, "Sync: the curve follows the DAW tempo and position, anchored to the bar.",
+             "Sync: la curva sigue el tempo y la posición del DAW, anclada al compás.");
+    tips.add(trigMidiPill, "MIDI: every incoming note fires the curve once. Send it the kick's notes.",
+             "MIDI: cada nota que llega dispara la curva una vez. Mandale las notas del bombo.");
+    tips.add(trigAudioPill, "Audio: detects the kick in the plugin's sidechain (or in its input if the sidechain is off) and fires the curve on every hit.",
+             "Audio: detecta el bombo en el sidechain del plugin (o en su entrada si el sidechain no está activo) y dispara la curva con cada golpe.");
+    tips.add(noteKnob.slider, "MIDI note that fires the curve (or Any). MIDI mode only.",
+             "Nota MIDI que dispara la curva (o Any). Solo en modo MIDI.");
+    tips.add(thresholdKnob.slider, "Audio threshold: the level the kick has to cross to fire the curve. Audio mode only.",
+             "Umbral de audio: el nivel que tiene que cruzar el bombo para disparar la curva. Solo en modo Audio.");
+
+    tips.add(bandFullPill, "Full: the dip affects the whole signal.", "Full: el hueco afecta a toda la señal.");
+    tips.add(bandLowPill, "Low: only the lows (below the crossover) dip, so the bass breathes and its highs don't.",
+             "Low: solo bajan los graves (debajo del crossover), así el bajo respira y sus agudos no.");
+    tips.add(bandHighPill, "High: only the highs (above the crossover) dip.",
+             "High: solo bajan los agudos (arriba del crossover).");
+    tips.add(crossoverKnob.slider, "Crossover frequency, 40 to 400 Hz: the split between lows and highs for the Low / High bands.",
+             "Frecuencia de crossover, 40 a 400 Hz: el corte entre graves y agudos para las bandas Low / High.");
+
+    tips.add(outputSlider, "Output trim, -24 to +12 dB.", "Ganancia de salida, -24 a +12 dB.");
+    tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).",
+             "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
+
     setSize(1100, 640);
     setResizable(true, true);
     setResizeLimits(960, 600, 1800, 1100);
@@ -230,6 +277,8 @@ void DecimulGapEditor::paint(juce::Graphics& g)
 
 void DecimulGapEditor::resized()
 {
+    tips.layout(getLocalBounds());
+
     auto content = getLocalBounds().reduced(22, 18);
     content.removeFromBottom(8);
 

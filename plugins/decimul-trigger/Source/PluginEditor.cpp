@@ -154,16 +154,7 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     addAndMakeVisible(alignPill);
     addAndMakeVisible(chokePill);
     addAndMakeVisible(rejectPill);
-    fixedVelPill.setTooltip("Todos los golpes salen con la velocity maxima, sin medir la intensidad.");
-    listenPill.setTooltip("Escucha la senal que usa el detector (despues de los filtros), para ajustar Low/High Cut.");
-    alignPill.setTooltip("Retrasa el audio original lo que dura la medicion, para que coincida con el MIDI y el sample.");
-    chokePill.setTooltip("Cada golpe nuevo corta las muestras que seguian sonando.");
-    rejectPill.setTooltip("Solo deja pasar los golpes que se parecen a la huella aprendida (rechaza el bleed de otros instrumentos).");
 
-    onsetKnob.slider.setTooltip("Cuanto tiene que subir de golpe el nivel para contar como ataque. Mas bajo = detecta golpes "
-                                "mas suaves o pegados a otros (con mas falsos); mas alto = solo ataques secos.");
-    offsetKnob.slider.setTooltip("Mueve las muestras contra el audio original. Positivo = mas tarde. Negativo = se salta el "
-                                 "comienzo de la muestra (las grabadas traen 3 ms de pre-roll: proba -3).");
 
     addAndMakeVisible(calibratePill);
     addAndMakeVisible(calibrateStatus);
@@ -172,8 +163,6 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     addAndMakeVisible(exportMidiPill);
 
     calibratePill.setClickingTogglesState(false);
-    calibratePill.setTooltip("Escucha unos 6 segundos y ajusta Threshold y Max Level solos: el nivel maximo es el del golpe "
-                             "mas fuerte que oyo y el umbral queda sobre el ruido de fondo.");
     calibratePill.onClick = [this]
     {
         if (processorRef.isCalibrating()) processorRef.cancelCalibration();
@@ -185,11 +174,8 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     calibrateStatus.setJustificationType(juce::Justification::centredLeft);
     calibrateStatus.setBorderSize(juce::BorderSize<int>(0, 4, 0, 0));
 
-    polarityPill.setTooltip("Invierte la fase de las muestras. Si al reforzar el original se anulan entre si (suena hueco), prueba esto.");
 
     midiInPill.setClickingTogglesState(false);
-    midiInPill.setTooltip("Toca el reproductor propio con las notas MIDI que llegan al plugin. NO: ignora el MIDI. "
-                          "NOTA: solo la nota configurada. TODAS: cualquier nota. Necesita Reforzar o Reemplazar.");
     midiInPill.onClick = [this]
     {
         const int mode = (int) std::lround(processorRef.apvts.getRawParameterValue(ParamIDs::midiIn)->load());
@@ -197,7 +183,6 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     };
 
     exportMidiPill.setClickingTogglesState(false);
-    exportMidiPill.setTooltip("Guarda los golpes grabados como archivo .mid, en la posicion que tenian en el proyecto (960 ppq).");
     exportMidiPill.onClick = [this]
     {
         const auto result = processorRef.exportRecordedMidi(captureName.getText());
@@ -223,7 +208,6 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
 
     // ---- Huella ----
     learnPill.setClickingTogglesState(false);
-    learnPill.setTooltip("Toca solo el instrumento (unos 8 a 12 golpes) y apreta de nuevo para cerrar.");
     learnPill.onClick = [this]
     {
         if (processorRef.isLearning()) processorRef.stopLearning();
@@ -244,13 +228,10 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
 
     // ---- Captura ----
     recPill.setClickingTogglesState(false);
-    recPill.setTooltip("Graba cada golpe detectado: el audio (para armar muestras) y su posicion (para exportar MIDI).");
     recPill.onClick = [this] { processorRef.setCapturing(!processorRef.isCapturing()); };
     addAndMakeVisible(recPill);
 
     makePill.setClickingTogglesState(false);
-    makePill.setTooltip("Reparte los golpes grabados en capas por velocity y alternancias, los guarda como "
-                        "WAV y los carga en el reproductor.");
     makePill.onClick = [this]
     {
         const auto result = processorRef.exportTakes(captureName.getText(),
@@ -265,7 +246,6 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     addAndMakeVisible(makePill);
 
     clearTakesPill.setClickingTogglesState(false);
-    clearTakesPill.setTooltip("Borra las tomas de audio y los golpes MIDI grabados.");
     clearTakesPill.onClick = [this]
     {
         processorRef.clearTakes();
@@ -285,7 +265,6 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     captureName.setColour(juce::TextEditor::backgroundColourId, DecimuColours::background);
     captureName.setColour(juce::TextEditor::textColourId, DecimuColours::text);
     captureName.setColour(juce::TextEditor::outlineColourId, DecimuColours::textMuted.withAlpha(0.5f));
-    captureName.setTooltip("Prefijo de los archivos que se crean (ej. Caja)");
     addAndMakeVisible(captureName);
 
     captureNameLabel.setText("NOMBRE", juce::dontSendNotification);
@@ -330,8 +309,6 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
             l->onEditorShow = [l] { if (auto* ed = l->getCurrentTextEditor()) ed->setInputRestrictions(6, "0123456789.-+"); };
             addAndMakeVisible(*l);
         }
-        gainLabels[(size_t) i].setTooltip("Ganancia de esta muestra en dB, de -24 a +12 (doble click para escribirla)");
-        tuneLabels[(size_t) i].setTooltip("Afinacion de esta muestra en semitonos, de -12 a +12 (doble click para escribirla)");
         gainLabels[(size_t) i].onTextChange = [this, i] { commitSlotGain(i); };
         tuneLabels[(size_t) i].onTextChange = [this, i] { commitSlotTune(i); };
     }
@@ -366,6 +343,121 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     }
     lastHitCount = processorRef.hitCount.load();
     lastVoiceCount = processorRef.voiceCount.load();
+
+    // ---- Tooltips: inglés por defecto; el botón EN/ES de abajo los pasa a español ----
+    addAndMakeVisible(tips.getSwitch());
+
+    tips.add(scope, "Monitor of the last 4 seconds: the level of the detection signal and every hit with its velocity (a grey cross is a hit rejected as bleed). Drag the dashed Threshold and Max Level lines to set them by eye.",
+             "Monitor de los últimos 4 segundos: el nivel de la señal de detección y cada golpe con su velocity (una cruz gris es un golpe rechazado como bleed). Arrastrá las líneas punteadas de Threshold y Max Level para ajustarlas a ojo.");
+    tips.add(readout, "Last hit: its velocity and note, and the counters. Similarity and rejected count appear when Reject Bleed is on.",
+             "Último golpe: su velocity y nota, y los contadores. El parecido y los rechazados aparecen cuando Rechazar bleed está activo.");
+
+    // Detección
+    tips.add(thresholdKnob.slider, "Threshold, -60 to 0 dB: the minimum peak that counts as a hit. It is also the level that gives Vel Min.",
+             "Threshold, -60 a 0 dB: el pico mínimo para que cuente como golpe. Es también el nivel que da la Vel Min.");
+    tips.add(maxLevelKnob.slider, "Max Level, -40 to 0 dB: the peak that gives the maximum velocity. Harder hits are capped there.",
+             "Max Level, -40 a 0 dB: el pico que da la velocity máxima. Los golpes más fuertes quedan topeados ahí.");
+    tips.add(scanKnob.slider, "Scan, 0.5 to 10 ms: how long after the attack the peak is measured to get the velocity. Longer is more accurate with slow attacks, but the MIDI comes out later.",
+             "Scan, 0.5 a 10 ms: cuánto tiempo después del ataque se mide el pico para sacar la velocity. Más largo es más preciso con ataques lentos, pero el MIDI sale más tarde.");
+    tips.add(retriggerKnob.slider, "Retrigger, 5 to 250 ms: dead time after a hit, and how fast the previous hit's level fades as the bar a new hit has to beat. Stops ringing and bleed from retriggering.",
+             "Retrigger, 5 a 250 ms: tiempo muerto después de un golpe y qué tan rápido decae el nivel del golpe anterior, que es lo que tiene que superar uno nuevo. Evita que el ring o el bleed retriggueen.");
+    tips.add(lowCutKnob.slider, "Low cut of the detection signal, 20 to 500 Hz. It only changes what the detector hears, not your audio.",
+             "Corte de graves de la señal de detección, 20 a 500 Hz. Solo cambia lo que oye el detector, no tu audio.");
+    tips.add(highCutKnob.slider, "High cut of the detection signal, 1 to 20 kHz. It only changes what the detector hears, not your audio.",
+             "Corte de agudos de la señal de detección, 1 a 20 kHz. Solo cambia lo que oye el detector, no tu audio.");
+    tips.add(onsetKnob.slider, "Attack, 1 to 12 dB: how much the level has to jump to count as a new hit. Lower detects softer or closely packed hits (with more false ones); higher accepts only sharp attacks.",
+             "Ataque, 1 a 12 dB: cuánto tiene que subir de golpe el nivel para contar como golpe nuevo. Más bajo detecta golpes más suaves o pegados (con más falsos); más alto acepta solo ataques secos.");
+    tips.add(listenPill, "Listen to the detection signal (after the Low / High cut) to set those two by ear.",
+             "Escucha la señal de detección (después del Low / High Cut) para ajustar esos dos de oído.");
+    tips.add(calibratePill, "Listens for about 6 seconds and sets Threshold and Max Level for you: Max Level is the loudest hit it heard, and the threshold sits above the noise floor. Play from soft to loud, with pauses between hits.",
+             "Escucha unos 6 segundos y ajusta Threshold y Max Level solos: el Max Level es el golpe más fuerte que oyó y el umbral queda sobre el ruido de fondo. Tocá de suave a fuerte, con pausas entre golpes.");
+
+    // Velocity y MIDI
+    tips.add(minVelKnob.slider, "Vel Min, 1 to 127: the velocity of a hit right at the Threshold.",
+             "Vel Min, 1 a 127: la velocity de un golpe justo en el Threshold.");
+    tips.add(maxVelKnob.slider, "Vel Max, 1 to 127: the velocity of a hit at Max Level. With Fixed Velocity every hit uses this value.",
+             "Vel Max, 1 a 127: la velocity de un golpe en el Max Level. Con Velocity fija todos los golpes usan este valor.");
+    tips.add(curveKnob.slider, "Curve, -1 to +1: negative makes soft hits sound louder (compresses), positive gives more dynamics (soft hits stay soft).",
+             "Curva, -1 a +1: negativa hace que los golpes suaves suenen más fuertes (comprime), positiva da más dinámica (los suaves quedan suaves).");
+    tips.add(fixedVelPill, "Fixed velocity: every hit goes out with the maximum velocity, without measuring its strength.",
+             "Velocity fija: todos los golpes salen con la velocity máxima, sin medir la intensidad.");
+    tips.add(noteKnob.slider, "MIDI note the hits go out on (38 = snare by default). It is also the note that MIDI IN: NOTE listens to.",
+             "Nota MIDI con la que salen los golpes (38 = caja por defecto). Es también la nota que escucha MIDI IN: NOTA.");
+    tips.add(channelKnob.slider, "MIDI channel of the output notes (10 = drums by default).",
+             "Canal MIDI de las notas de salida (10 = batería por defecto).");
+    tips.add(noteLenKnob.slider, "Length of each output note, 5 to 500 ms.", "Largo de cada nota de salida, 5 a 500 ms.");
+
+    // Huella
+    tips.add(learnPill, "Learn: play only this instrument (8 to 12 hits) and press again to close. It closes by itself at 24 hits.",
+             "Aprender: tocá solo este instrumento (unos 8 a 12 golpes) y apretá de nuevo para cerrar. Cierra sola a los 24.");
+    tips.add(clearPrintPill, "Deletes the learned fingerprint.", "Borra la huella aprendida.");
+    tips.add(rejectPill, "Reject bleed: only hits that look like the learned fingerprint pass; the others show as grey crosses on the monitor.",
+             "Rechazar bleed: solo pasan los golpes que se parecen a la huella aprendida; los otros se ven como cruces grises en el monitor.");
+    tips.add(matchKnob.slider, "Minimum similarity to the fingerprint for a hit to pass, 0.30 to 0.99. Higher is stricter.",
+             "Parecido mínimo con la huella para que un golpe pase, 0.30 a 0.99. Más alto es más estricto.");
+    tips.add(fpWindowKnob.slider, "Fingerprint window, 4 to 30 ms: how much of the hit after the attack is analysed. If you change it, learn the fingerprint again. With Align Original the latency equals this window.",
+             "Ventana de la huella, 4 a 30 ms: cuánto del golpe, después del ataque, se analiza. Si la cambiás, volvé a aprender la huella. Con Alinear original la latencia es igual a esta ventana.");
+    tips.add(fingerprintView, "Fingerprint: the bars are the learned spectral shape (low to high frequency); the ticks are the last hit.",
+             "Huella: las barras son la forma espectral aprendida (de graves a agudos); las marcas son el último golpe.");
+
+    // Captura
+    tips.add(recPill, "Record hits: stores the audio of every detected hit (to build samples) and its position (to export MIDI).",
+             "Grabar golpes: guarda el audio de cada golpe detectado (para armar muestras) y su posición (para exportar MIDI).");
+    tips.add(makePill, "Create samples: splits the recorded hits into velocity layers and round-robin variations, saves them as WAV files and loads them into the player.",
+             "Crear muestras: reparte los golpes grabados en capas por velocity y alternancias, los guarda como WAV y los carga en el reproductor.");
+    tips.add(exportMidiPill, "Export MIDI: saves the recorded hits as a .mid file, at the position they had in the project (960 ppq). The message says which bar to drop it on.",
+             "Exportar MIDI: guarda los golpes grabados como archivo .mid, en la posición que tenían en el proyecto (960 ppq). El mensaje dice en qué compás soltarlo.");
+    tips.add(clearTakesPill, "Deletes the recorded audio takes and MIDI hits.", "Borra las tomas de audio y los golpes MIDI grabados.");
+    tips.add(openFolderPill, "Opens the folder (or the file) of the last export.", "Abre la carpeta (o el archivo) de la última exportación.");
+    tips.add(captureName, "Name prefix of the files that get created (for example Snare).",
+             "Prefijo de los archivos que se crean (por ejemplo Caja).");
+    tips.add(capLengthKnob.slider, "Length of each recorded hit, 100 to 1000 ms. It is cut short where the next hit starts or the sound dies away.",
+             "Largo de cada golpe grabado, 100 a 1000 ms. Se corta antes donde empieza el golpe siguiente o el sonido se apaga.");
+    tips.add(capLayersKnob.slider, "Velocity layers to build when creating samples, 1 to 4 (layers x round-robin: up to 8 samples).",
+             "Capas de velocity al crear las muestras, 1 a 4 (capas x alternancias: hasta 8 muestras).");
+    tips.add(capRRKnob.slider, "Round-robin variations per layer, 1 to 4 (layers x round-robin: up to 8 samples).",
+             "Alternancias (round-robin) por capa, 1 a 4 (capas x alternancias: hasta 8 muestras).");
+
+    // Reproductor propio
+    tips.add(samplerOffPill, "Only MIDI: the audio passes untouched and the plugin sends MIDI notes with velocity to whatever follows in the chain.",
+             "Solo MIDI: el audio pasa como está y el plugin manda notas con velocity a lo que sigue en la cadena.");
+    tips.add(samplerReinforcePill, "Reinforce: the original plays together with the sample of the layer that matches the hit strength.",
+             "Reforzar: el original suena junto con la muestra de la capa que corresponde a la fuerza del golpe.");
+    tips.add(samplerReplacePill, "Replace: the original is silenced and only the sample plays.",
+             "Reemplazar: se silencia el original y suena solo la muestra.");
+    tips.add(sampleLevelKnob.slider, "Level of the built-in samples, -24 to +12 dB.", "Nivel de las muestras propias, -24 a +12 dB.");
+    tips.add(origLevelKnob.slider, "Level of the original audio in Reinforce mode, -60 to 0 dB.",
+             "Nivel del audio original en modo Reforzar, -60 a 0 dB.");
+    tips.add(velSensKnob.slider, "Velocity to volume, 0 to 100 %: how much the sample volume follows the hit velocity (0 % = always full volume).",
+             "Velocity a volumen, 0 a 100 %: cuánto sigue el volumen de la muestra a la velocity del golpe (0 % = siempre a volumen completo).");
+    tips.add(offsetKnob.slider, "Offset, -10 to +10 ms: moves the samples against the original. Positive = later. Negative = skips the start of the sample (recorded ones carry 3 ms of pre-roll: try -3).",
+             "Desfase, -10 a +10 ms: mueve las muestras contra el audio original. Positivo = más tarde. Negativo = se salta el comienzo de la muestra (las grabadas traen 3 ms de pre-roll: probá -3).");
+    tips.add(alignPill, "Align original: delays the original audio by the measuring time so it lines up with the MIDI and the sample. That latency is reported to the host.",
+             "Alinear original: retrasa el audio original lo que dura la medición, para que coincida con el MIDI y la muestra. Esa latencia se le informa al host.");
+    tips.add(chokePill, "Choke: every new hit cuts the samples that were still ringing.",
+             "Cortar anterior: cada golpe nuevo corta las muestras que seguían sonando.");
+    tips.add(polarityPill, "Invert phase of the samples. If reinforcing makes the original and the sample cancel out (it sounds hollow), try this.",
+             "Invierte la fase de las muestras. Si al reforzar el original y la muestra se anulan entre sí (suena hueco), probá esto.");
+    tips.add(midiInPill, "MIDI IN: plays the built-in samples with the MIDI notes that reach the plugin. NO ignores MIDI, NOTE listens only to the configured note, ALL takes any note. Needs Reinforce or Replace; the notes it plays are consumed, the rest pass through.",
+             "MIDI IN: toca las muestras propias con las notas MIDI que llegan al plugin. NO ignora el MIDI, NOTA escucha solo la nota configurada, TODAS toma cualquiera. Necesita Reforzar o Reemplazar; las notas que toca se consumen, el resto pasa de largo.");
+
+    for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)
+    {
+        tips.add(*slotButtons[(size_t) i], "Sample slot " + juce::String(i + 1) + ": click to choose a file, or drop audio files on the window. Right-click for more options.",
+                 "Slot de muestra " + juce::String(i + 1) + ": click para elegir un archivo, o soltá archivos de audio en la ventana. Click derecho para más opciones.");
+        tips.add(loLabels[(size_t) i], "Lowest velocity this sample responds to (double-click to type it). Samples with the same range take turns (round-robin).",
+                 "Velocity mínima a la que responde esta muestra (doble click para escribirla). Las muestras con el mismo rango se turnan (round-robin).");
+        tips.add(hiLabels[(size_t) i], "Highest velocity this sample responds to (double-click to type it). Samples with the same range take turns (round-robin).",
+                 "Velocity máxima a la que responde esta muestra (doble click para escribirla). Las muestras con el mismo rango se turnan (round-robin).");
+        tips.add(gainLabels[(size_t) i], "Gain of this sample in dB, -24 to +12 (double-click to type it).",
+                 "Ganancia de esta muestra en dB, de -24 a +12 (doble click para escribirla).");
+        tips.add(tuneLabels[(size_t) i], "Tuning of this sample in semitones, -12 to +12 (double-click to type it).",
+                 "Afinación de esta muestra en semitonos, de -12 a +12 (doble click para escribirla).");
+    }
+
+    tips.add(outputSlider, "Output trim, -24 to +12 dB.", "Ganancia de salida, -24 a +12 dB.");
+    tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).",
+             "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
 
     setSize(1180, 880);
     setResizable(true, true);
@@ -537,6 +629,8 @@ void DecimulTriggerEditor::paint(juce::Graphics& g)
 
 void DecimulTriggerEditor::resized()
 {
+    tips.layout(getLocalBounds());
+
     auto content = getLocalBounds().reduced(22, 18);
     content.removeFromBottom(8);
 

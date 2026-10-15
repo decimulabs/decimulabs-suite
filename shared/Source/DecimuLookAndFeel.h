@@ -84,6 +84,12 @@ public:
     void drawToggleButton(juce::Graphics&, juce::ToggleButton&,
                            bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 
+    // Tooltips con la estética de la suite: fondo oscuro, borde de acento y el texto
+    // repartido en varias líneas (ver DecimuTooltips.h).
+    void drawTooltip(juce::Graphics&, const juce::String& text, int width, int height) override;
+    juce::Rectangle<int> getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos,
+                                          juce::Rectangle<int> parentArea) override;
+
 private:
     juce::Typeface::Ptr chakraRegular, chakraBold, vt323;
 

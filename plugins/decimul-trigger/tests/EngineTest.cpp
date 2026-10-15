@@ -365,6 +365,16 @@ int main(int argc, char** argv)
         }
         juce::MessageManager::getInstance()->runDispatchLoopUntil(600);
 
+        // Con --tips se muestra un tooltip de ejemplo (así se ve el estilo sin tener que pasar el mouse).
+        if (argc >= 4 && juce::String(argv[3]) == "--tips")
+        {
+            for (auto* child : editor->getChildren())
+                if (auto* tooltip = dynamic_cast<juce::TooltipWindow*>(child))
+                    tooltip->displayTip({ 470, 330 },
+                                        "Attack, 1 to 12 dB: how much the level has to jump to count as a new hit. "
+                                        "Lower detects softer or closely packed hits (with more false ones); higher accepts only sharp attacks.");
+        }
+
         const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);
         const juce::File out(argv[2]);
         out.deleteFile();

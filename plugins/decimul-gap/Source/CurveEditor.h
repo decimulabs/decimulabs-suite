@@ -14,7 +14,8 @@
       un punto: lo borra.
     - Con Shift apretado, los puntos se pegan a una grilla de 1/16 en x y 5 % en y.
 */
-class GapCurveEditor : public juce::Component
+class GapCurveEditor : public juce::Component,
+                       public juce::SettableTooltipClient
 {
 public:
     static constexpr int maxPoints = 24;

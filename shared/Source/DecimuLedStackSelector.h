@@ -13,7 +13,8 @@
     periódicamente (p. ej. desde un Timer a 30Hz) para reflejar cambios de host/preset.
     Ver plugins/decimul-acoustic/Source/PluginEditor.cpp para el patrón completo.
 */
-class DecimuLedStackSelector : public juce::Component
+class DecimuLedStackSelector : public juce::Component,
+                               public juce::SettableTooltipClient
 {
 public:
     void setOptions(const juce::StringArray& items);

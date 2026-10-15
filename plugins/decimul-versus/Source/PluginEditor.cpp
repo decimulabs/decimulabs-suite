@@ -97,8 +97,6 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     addAndMakeVisible(loopPill);
 
     alignPill.setClickingTogglesState(false);
-    alignPill.setTooltip("Busca en la referencia el tramo que mas se parece (en balance tonal y nivel) "
-                         "a los ultimos segundos de tu mezcla, y salta ahi.");
     alignPill.onClick = [this]
     {
         juce::String report;
@@ -164,7 +162,6 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     addAndMakeVisible(bPill);
     addChildComponent(xPill);
 
-    abxPill.setTooltip("Test ciego: X es A o B al azar. Adivina cual es y mira cuantas acertas.");
     addAndMakeVisible(abxPill);
 
     ansAPill.setClickingTogglesState(false);
@@ -190,7 +187,6 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     sourceACombo.addItem("Mezcla del DAW", 1);
     for (int i = 0; i < DecimulVersusProcessor::numSlots; ++i)
         sourceACombo.addItem("Slot " + juce::String(i + 1), i + 2);
-    sourceACombo.setTooltip("Que suena en el lado A: tu mezcla, o un slot (para comparar dos versiones entre si).");
     addAndMakeVisible(sourceACombo);
 
     setupBracketLabel(abLabel, "ESCUCHAR   teclas A / B / X, 1-8 = slot B");
@@ -225,6 +221,63 @@ DecimulVersusEditor::DecimulVersusEditor(DecimulVersusProcessor& p)
     loopAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::loopEnabled, loopPill);
     abxAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::abxMode, abxPill);
     sourceAAttach = std::make_unique<ComboAttachment>(apvts, ParamIDs::sourceA, sourceACombo);
+
+    // ---- Tooltips: inglés por defecto; el botón EN/ES de abajo los pasa a español ----
+    addAndMakeVisible(tips.getSwitch());
+
+    for (int i = 0; i < DecimulVersusProcessor::numSlots; ++i)
+        tips.add(*slotButtons[(size_t) i],
+                 "Reference slot " + juce::String(i + 1) + ": click to pick it as B (an empty one asks for a song), "
+                 "right-click to replace or remove it. You can also drop audio files on the window. Key " + juce::String(i + 1) + ".",
+                 "Slot de referencia " + juce::String(i + 1) + ": click para elegirlo como B (uno vacío pide una canción), "
+                 "click derecho para reemplazarlo o quitarlo. También podés soltar archivos de audio en la ventana. Tecla " + juce::String(i + 1) + ".");
+
+    tips.add(playPill, "Play / stop the reference from the plugin itself, without the DAW playing.",
+             "Reproduce / detiene la referencia desde el plugin, sin que el DAW esté en play.");
+    tips.add(hostPill, "Host sync (default): the reference plays when the DAW plays and follows its transport.",
+             "Host sync (default): la referencia suena cuando el DAW está en play y sigue su transporte.");
+    tips.add(loopPill, "Loop: repeats the marked region of the waveform. Drag on the waveform to mark one.",
+             "Loop: repite la región marcada de la forma de onda. Arrastrá sobre la forma de onda para marcarla.");
+    tips.add(alignPill, "Finds the stretch of the reference that best matches (in tonal balance and level) the last seconds of your mix, and jumps there. Play your mix for about 5 seconds first.",
+             "Busca en la referencia el tramo que más se parece (en balance tonal y nivel) a los últimos segundos de tu mezcla, y salta ahí. Antes dejá sonar tu mezcla unos 5 segundos.");
+    tips.add(waveform, "Waveform of the selected reference. Click to jump, drag to mark a loop, double-click to clear it.",
+             "Forma de onda de la referencia elegida. Click = saltar, arrastrar = marcar un loop, doble click = borrarlo.");
+
+    tips.add(avgPill, "Long-term average spectrum: your mix (A) against the reference (B), with the loudness match applied.",
+             "Espectro promedio de largo plazo: tu mezcla (A) contra la referencia (B), con el volumen igualado aplicado.");
+    tips.add(livePill, "Real-time spectrum, in third-octave bands.", "Espectro en tiempo real, en bandas de tercio de octava.");
+    tips.add(diffPill, "Difference per band, +/-12 dB: a bar going up means your mix has more energy in that band.",
+             "Diferencia por banda, +/-12 dB: una barra hacia arriba significa que tu mezcla tiene más energía en esa banda.");
+    tips.add(resetPill, "Restarts the long-term average of your mix.", "Reinicia el promedio de largo plazo de tu mezcla.");
+    tips.add(spectrum, "Spectrum in 30 third-octave bands: your mix against the reference, at the same loudness.",
+             "Espectro en 30 bandas de tercio de octava: tu mezcla contra la referencia, al mismo volumen.");
+    tips.add(metrics, "Loudness and dynamics: LUFS, true peak, PLR, LRA, stereo width and correlation, for your mix and the reference.",
+             "Loudness y dinámica: LUFS, true peak, PLR, LRA, ancho estéreo y correlación, de tu mezcla y de la referencia.");
+
+    tips.add(aPill, "A: listen to your mix (or whatever is chosen in \"A =\"). Key A.",
+             "A: escuchás tu mezcla (o lo que esté elegido en \"A =\"). Tecla A.");
+    tips.add(bPill, "B: listen to the selected reference, at the same loudness. Key B.",
+             "B: escuchás la referencia elegida, al mismo volumen. Tecla B.");
+    tips.add(xPill, "X: the hidden one, A or B at random. Key X.", "X: la oculta, A o B al azar. Tecla X.");
+    tips.add(abxPill, "Blind test: X is A or B at random. Guess which one it is and see how many you get right.",
+             "Test ciego: X es A o B al azar. Adiviná cuál es y mirá cuántas acertás.");
+    tips.add(ansAPill, "Answer: X is A.", "Respuesta: X es A.");
+    tips.add(ansBPill, "Answer: X is B.", "Respuesta: X es B.");
+    tips.add(abxResetPill, "Resets the blind test count.", "Reinicia la cuenta del test ciego.");
+    tips.add(sourceACombo, "What plays on side A: your mix, or a slot (to compare two versions of a song with each other).",
+             "Qué suena en el lado A: tu mezcla, o un slot (para comparar dos versiones de un tema entre sí).");
+
+    tips.add(matchSel, "Match: Auto LUFS levels the reference to your mix by integrated loudness (default). Off applies no gain.",
+             "Match: Auto LUFS iguala la referencia a tu mezcla por loudness integrado (default). Off no aplica ganancia.");
+    tips.add(trimKnob, "Trim B: manual gain on the reference, +/-12 dB, on top of the loudness match.",
+             "Trim B: ganancia manual sobre la referencia, +/-12 dB, encima del igualado de volumen.");
+    tips.add(monitorSel, "Monitor: Stereo, Mono, or Side (only what differs between left and right).",
+             "Monitor: Stereo, Mono o Side (solo lo que difiere entre izquierda y derecha).");
+    tips.add(bandSel, "Listen to one band only: Full, Low (below 150 Hz), Mid, or High (above 2.5 kHz).",
+             "Escuchar una sola banda: Full, Low (menos de 150 Hz), Mid o High (más de 2.5 kHz).");
+    tips.add(outputSlider, "Output trim, -24 to +12 dB.", "Ganancia de salida, -24 a +12 dB.");
+    tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).",
+             "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
 
     setSize(1120, 790);
     setResizable(true, true);
@@ -437,6 +490,8 @@ void DecimulVersusEditor::layoutAbBox()
 
 void DecimulVersusEditor::resized()
 {
+    tips.layout(getLocalBounds());
+
     auto content = getLocalBounds().reduced(22, 18);
     content.removeFromBottom(8);
 

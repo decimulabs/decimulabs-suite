@@ -61,6 +61,30 @@ DecimulCarveEditor::DecimulCarveEditor(DecimulCarveProcessor& p)
     outputAttach = std::make_unique<SliderAttachment>(processorRef.apvts, ParamIDs::outputTrim, outputSlider);
     bypassAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, ParamIDs::bypass, bypassButton);
 
+    // ---- Tooltips: inglés por defecto; el botón EN/ES de abajo los pasa a español ----
+    addAndMakeVisible(tips.getSwitch());
+
+    tips.add(display, "32-band display. Bottom: the level of the sidechain in each band. Top: the cut Carve applies to this track there.",
+             "Pantalla de 32 bandas. Abajo: el nivel del sidechain en cada banda. Arriba: el recorte que Carve le aplica a esta pista ahí.");
+    tips.add(amountKnob.slider, "Amount, 0 to 100 %: the maximum cut (100 % is about 24 dB in very loaded bands).",
+             "Amount, 0 a 100 %: cuánto recorta como máximo (100 % son unos 24 dB en bandas muy cargadas).");
+    tips.add(scGainKnob.slider, "Sidechain gain, +/-24 dB: gain applied to the sidechain before measuring it. Louder = it cuts more.",
+             "Ganancia del sidechain, +/-24 dB: ganancia antes de medirlo. Más fuerte = recorta más.");
+    tips.add(mixKnob.slider, "Mix, 0 to 100 %: dry / wet.", "Mix, 0 a 100 %: dry / wet.");
+    tips.add(attackKnob.slider, "Attack: how fast the cut closes in when the sidechain gets louder in a band.",
+             "Attack: qué tan rápido entra el recorte cuando el sidechain sube en una banda.");
+    tips.add(releaseKnob.slider, "Release: how fast the cut lets go when the sidechain gets quieter.",
+             "Release: qué tan rápido suelta el recorte cuando el sidechain baja.");
+    tips.add(smoothKnob.slider, "Smooth: spreads the cut to neighbouring bands for a more natural, less holey result.",
+             "Smooth: reparte el recorte entre bandas vecinas para un resultado más natural y menos \"agujereado\".");
+    tips.add(lowKnob.slider, "Cuts from this frequency up. Protects what is below it (for example the punch of the bass).",
+             "Recorta desde esta frecuencia hacia arriba. Protege lo que está por debajo (por ejemplo la pegada del bajo).");
+    tips.add(highKnob.slider, "Cuts up to this frequency. Protects what is above it.",
+             "Recorta hasta esta frecuencia. Protege lo que está por encima.");
+    tips.add(outputSlider, "Output trim.", "Ganancia de salida.");
+    tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).",
+             "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
+
     setSize(1000, 560);
     setResizable(true, true);
     setResizeLimits(880, 520, 1700, 1000);
@@ -113,6 +137,8 @@ void DecimulCarveEditor::paint(juce::Graphics& g)
 
 void DecimulCarveEditor::resized()
 {
+    tips.layout(getLocalBounds());
+
     auto content = getLocalBounds().reduced(22, 18);
     content.removeFromBottom(8);
 

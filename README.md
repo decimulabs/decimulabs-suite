@@ -38,6 +38,12 @@ Esa estética vive **una sola vez**, en [`shared/`](shared), no copiada en cada 
 - `shared/Source/DecimuLedStackSelector.h/.cpp`, `DecimuLadderMeter.h/.cpp`,
   `DecimuVuArc.h/.cpp` — Componentes reutilizables (selector de 2-4 opciones, meter
   segmentado, VU en arco).
+- `shared/Source/DecimuTooltips.h` — textos de ayuda al pasar el puntero, **en inglés por
+  defecto** y con un botón EN/ES abajo de la ventana (la elección queda guardada por
+  usuario en `%APPDATA%decimulabssuite-settings.txt` y vale para toda la suite). Cada
+  editor tiene un `DecimuTooltips tips { *this }`, registra sus controles con
+  `tips.add(control, "English", "Español")` y llama a `tips.layout()` en `resized()`. Trae la
+  ventana de tooltips (`juce::TooltipWindow`): sin ella los `setTooltip()` no se ven nunca.
 - `shared/Assets/` — logo (`wordmark.png`, `dog.png`), tipografías OFL, foto del estudio.
   Ver [shared/Assets/README.md](shared/Assets/README.md) para origen y licencias.
 

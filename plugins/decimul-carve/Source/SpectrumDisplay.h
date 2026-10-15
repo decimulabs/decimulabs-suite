@@ -10,7 +10,8 @@
     está aplicando a la pista principal (color de acento). El rango Low/High se ve
     como zonas apagadas a los costados.
 */
-class CarveSpectrumDisplay : public juce::Component
+class CarveSpectrumDisplay : public juce::Component,
+                             public juce::SettableTooltipClient
 {
 public:
     void setData(const std::array<float, carve::numBands>& levelsDb,

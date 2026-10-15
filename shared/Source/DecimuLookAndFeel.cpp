@@ -11,6 +11,18 @@ namespace
             opts = opts.withTypeface(tf);
         return juce::Font(opts);
     }
+
+    // Texto del tooltip en un bloque de hasta ~340 px, con las líneas parejas.
+    juce::TextLayout layoutTooltipText(const juce::String& text, juce::Colour colour)
+    {
+        juce::AttributedString s;
+        s.setJustification(juce::Justification::topLeft);
+        s.append(text, juce::Font(juce::FontOptions(13.0f)), colour);
+
+        juce::TextLayout layout;
+        layout.createLayoutWithBalancedLineLengths(s, 340.0f);
+        return layout;
+    }
 }
 
 DecimuLookAndFeel::DecimuLookAndFeel(const DecimuAccentTheme& theme)
@@ -221,6 +233,31 @@ void DecimuLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& bu
     g.fillRect(bounds);
     g.setColour(DecimuColours::textMuted);
     g.drawRect(bounds, 1.0f);
+}
+
+void DecimuLookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& text, int width, int height)
+{
+    auto bounds = juce::Rectangle<float>(0.0f, 0.0f, (float) width, (float) height);
+
+    g.setColour(DecimuColours::background.withAlpha(0.98f));
+    g.fillRoundedRectangle(bounds, 5.0f);
+    g.setColour(DecimuColours::accentPrimary.withAlpha(0.75f));
+    g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
+
+    layoutTooltipText(text, DecimuColours::text).draw(g, bounds.reduced(9.0f, 6.0f));
+}
+
+juce::Rectangle<int> DecimuLookAndFeel::getTooltipBounds(const juce::String& tipText, juce::Point<int> screenPos,
+                                                         juce::Rectangle<int> parentArea)
+{
+    const auto layout = layoutTooltipText(tipText, DecimuColours::text);
+    const int w = (int) std::ceil(layout.getWidth()) + 20;
+    const int h = (int) std::ceil(layout.getHeight()) + 14;
+
+    return juce::Rectangle<int>(screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12) : screenPos.x + 24,
+                                screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 6) : screenPos.y + 8,
+                                w, h)
+        .constrainedWithin(parentArea);
 }
 
 void DecimuLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button, bool, bool)

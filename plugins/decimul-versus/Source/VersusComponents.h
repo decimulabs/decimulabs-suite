@@ -47,7 +47,8 @@ private:
 
 /** Forma de onda de la referencia elegida, con cursor de reproducción y región de
     loop. Click = saltar; arrastrar = marcar loop; doble click = borrar loop. */
-class VersusWaveformView : public juce::Component
+class VersusWaveformView : public juce::Component,
+                           public juce::SettableTooltipClient
 {
 public:
     void setTrack(std::shared_ptr<const ReferenceTrack> t);
@@ -80,7 +81,8 @@ private:
 /** Espectro por bandas de 1/3 de octava: lado A vs. lado B (con el volumen igualado
     aplicado), o la curva de diferencia por banda. Sirve igual para el promedio de largo
     plazo y para el tiempo real: quien lo usa elige qué arreglos le pasa. */
-class VersusSpectrumView : public juce::Component
+class VersusSpectrumView : public juce::Component,
+                           public juce::SettableTooltipClient
 {
 public:
     struct Data
@@ -104,7 +106,8 @@ private:
 };
 
 /** Tabla comparativa MIX / REF / diferencia. */
-class VersusMetricsView : public juce::Component
+class VersusMetricsView : public juce::Component,
+                          public juce::SettableTooltipClient
 {
 public:
     struct Data

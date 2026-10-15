@@ -15,7 +15,8 @@
     Level): se arrastran con el mouse para ajustarlas viendo el audio, que es como se
     calibra un trigger de verdad.
 */
-class HitScope : public juce::Component
+class HitScope : public juce::Component,
+                 public juce::SettableTooltipClient
 {
 public:
     static constexpr int historyFrames = 800;      // a 200 cuadros por segundo = 4 s
@@ -57,7 +58,8 @@ private:
 };
 
 /** Lectura grande del último golpe: velocity, parecido con la huella y un destello. */
-class HitReadout : public juce::Component
+class HitReadout : public juce::Component,
+                   public juce::SettableTooltipClient
 {
 public:
     struct State
@@ -79,7 +81,8 @@ private:
 };
 
 /** Forma espectral de la huella aprendida (barras) y del último golpe (marcas). */
-class FingerprintView : public juce::Component
+class FingerprintView : public juce::Component,
+                        public juce::SettableTooltipClient
 {
 public:
     void setData(const FingerprintBank::Vector& templateVector, bool templateValid,

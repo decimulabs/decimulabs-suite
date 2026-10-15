@@ -97,8 +97,6 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     // Toggle de sync (2da ronda de testing: "el BPM manual no influye en nada" — es
     // porque el host manda cuando da un tempo válido; este switch deja forzar el
     // manual/Tap). No es parámetro APVTS, se guarda directo en el processor.
-    hostSyncButton.setTooltip("ON: el tempo del host manda cuando esta disponible (default). "
-                               "OFF: fuerza el BPM manual/TAP aunque haya host.");
     hostSyncButton.setToggleState(processorRef.hostSyncEnabled.load(), juce::dontSendNotification);
     hostSyncButton.onClick = [this] { processorRef.hostSyncEnabled.store(hostSyncButton.getToggleState()); };
     addAndMakeVisible(hostSyncButton);
@@ -108,7 +106,6 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     bpmLabel.setJustificationType(juce::Justification::centred);
     bpmLabel.setColour(juce::Label::textColourId, DecimuColours::textMuted);
     bpmLabel.setEditable(false, true, false);
-    bpmLabel.setTooltip("Tempo manual (fallback sin host): doble click para escribirlo, o TAP");
     bpmLabel.onEditorShow = [this]
     {
         if (auto* ed = bpmLabel.getCurrentTextEditor())
@@ -148,6 +145,72 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     spaceEnabledAttach = std::make_unique<ButtonAttachment>(apvts, ParamIDs::spaceEnabled, spaceLedBtn);
     echoEnabledAttach  = std::make_unique<ButtonAttachment>(apvts, ParamIDs::echoEnabled, echoLedBtn);
     cabEnabledAttach   = std::make_unique<ButtonAttachment>(apvts, ParamIDs::cabEnabled, cabLedBtn);
+
+    // ---- Tooltips: inglés por defecto; el botón EN/ES de abajo los pasa a español ----
+    addAndMakeVisible(tips.getSwitch());
+
+    tips.add(inputSlider, "Input trim, -24 to +24 dB: the level the signal enters the plugin with.",
+             "Ganancia de entrada, -24 a +24 dB: el nivel con el que entra la señal al plugin.");
+
+    tips.add(gateSlider, "Gate amount, 0 to 100 %. 0 % = no gate; more % = higher threshold, so it cuts more noise.",
+             "Cantidad de gate, 0 a 100 %. 0 % = sin gate; más % = umbral más alto, o sea que corta más ruido.");
+    tips.add(gateModeSel, "Gate speed: Fast (3 ms attack, 60 ms release), Med (6 / 150 ms) or Slow (12 / 300 ms).",
+             "Velocidad del gate: Fast (3 ms de ataque, 60 ms de release), Med (6 / 150 ms) o Slow (12 / 300 ms).");
+
+    tips.add(driveSlider, "Drive amount, 0 to 100 %: gain into the saturator, up to +40 dB, oversampled 4x.",
+             "Cantidad de Drive, 0 a 100 %: ganancia hacia el saturador, hasta +40 dB, con sobremuestreo 4x.");
+    tips.add(driveModeSel, "Drive character: Tube, Fuzz or Boost. Different saturation curves, not just more gain.",
+             "Carácter del Drive: Tube, Fuzz o Boost. Curvas de saturación distintas, no solo más ganancia.");
+    tips.add(driveLedBtn, "Drive on/off. Switches the whole module off without touching its fader.",
+             "Drive on/off. Apaga el módulo entero sin tocar su fader.");
+
+    tips.add(toneSlider, "Tone: tilt EQ, +/-12 dB. One way cuts lows and lifts highs; the other way, the opposite.",
+             "Tone: EQ de inclinación, +/-12 dB. Para un lado baja graves y sube agudos; para el otro, al revés.");
+    tips.add(toneMidKnob, "Mid sweep: frequency of a fixed +4 dB mid peak, 300 to 3000 Hz.",
+             "Mid sweep: frecuencia de un pico fijo de +4 dB en los medios, 300 a 3000 Hz.");
+    tips.add(toneModeSel, "Where the tilt shelves sit: Scoop (250 Hz / 3 kHz), Flat (400 Hz / 2 kHz) or Bright (500 Hz / 1.5 kHz).",
+             "Dónde actúan los shelves del tilt: Scoop (250 Hz / 3 kHz), Flat (400 Hz / 2 kHz) o Bright (500 Hz / 1.5 kHz).");
+    tips.add(toneLedBtn, "Tone on/off. Switches the whole module off without touching its fader.",
+             "Tone on/off. Apaga el módulo entero sin tocar su fader.");
+
+    tips.add(cabModeSel, "Cabinet: Combo, Stack or DI (no cabinet colour even if the LED is on).",
+             "Gabinete: Combo, Stack o DI (sin color de gabinete aunque el LED esté prendido).");
+    tips.add(cabLedBtn, "Cab on/off. When on it is 100 % wet: there is no partial blend.",
+             "Cab on/off. Prendido es 100 % wet: no hay mezcla parcial.");
+
+    tips.add(modSlider, "Modulation amount, 0 to 100 %.", "Cantidad de modulación, 0 a 100 %.");
+    tips.add(modRateKnob, "Modulation rate, 0.1 to 5 Hz.", "Velocidad de la modulación, 0.1 a 5 Hz.");
+    tips.add(modModeSel, "Modulation type: Chorus, Flanger or Phaser.", "Tipo de modulación: Chorus, Flanger o Phaser.");
+    tips.add(modLedBtn, "Modulation on/off. Switches the whole module off without touching its fader.",
+             "Modulation on/off. Apaga el módulo entero sin tocar su fader.");
+
+    tips.add(spaceSlider, "Space: reverb level, 0 to 100 %.", "Space: nivel de la reverb, 0 a 100 %.");
+    tips.add(spacePreDelayKnob, "Reverb pre-delay, 0 to 500 ms: time before the reverb starts.",
+             "Pre-delay de la reverb, 0 a 500 ms: tiempo antes de que arranque la reverb.");
+    tips.add(spaceModeSel, "Reverb type: Room, Plate or Hall.", "Tipo de reverb: Room (sala), Plate (plate) o Hall.");
+    tips.add(spaceLedBtn, "Space on/off. Switches the whole module off without touching its fader.",
+             "Space on/off. Apaga el módulo entero sin tocar su fader.");
+
+    tips.add(echoSlider, "Echo: level of the tempo-synced delay, 0 to 100 %.",
+             "Echo: nivel del delay sincronizado al tempo, 0 a 100 %.");
+    tips.add(echoDivisionSel, "Echo time, following the tempo: Slap (short slapback), 8th note or quarter note.",
+             "Tiempo del eco, siguiendo el tempo: Slap (rebote corto), corchea o negra.");
+    tips.add(echoFeedbackKnob, "Echo feedback, 0 to 100 %: how many repeats. 100 % repeats without dying out.",
+             "Feedback del eco, 0 a 100 %: cuántas repeticiones. 100 % repite sin apagarse.");
+    tips.add(echoLedBtn, "Echo on/off. Switches the whole module off without touching its fader.",
+             "Echo on/off. Apaga el módulo entero sin tocar su fader.");
+
+    tips.add(blendSlider, "Blend (dry/wet): how much of Space, Mod and Echo you hear. Gate, Drive, Tone and Cab are never diluted.",
+             "Blend (dry/wet): cuánto se escucha de Space, Mod y Echo. Gate, Drive, Tone y Cab nunca se diluyen.");
+    tips.add(outputSlider, "Output trim, -60 to +24 dB.", "Ganancia de salida, -60 a +24 dB.");
+    tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).",
+             "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
+    tips.add(tapTempoButton, "Tap the tempo here. Used when the host gives no tempo (or SYNC is off).",
+             "Tocá el tempo acá. Se usa cuando el host no da tempo (o SYNC está apagado).");
+    tips.add(bpmLabel, "Manual tempo for the Echo (fallback without host): double-click to type it, or use TAP.",
+             "Tempo manual del Echo (sin host): doble click para escribirlo, o usá TAP.");
+    tips.add(hostSyncButton, "SYNC on: the host tempo wins when it is available (default). Off: forces the manual BPM / TAP even with a host.",
+             "SYNC on: manda el tempo del host cuando está disponible (default). Off: fuerza el BPM manual / TAP aunque haya host.");
 
     setSize(1180, 560);
     setResizable(true, true);
@@ -202,6 +265,8 @@ void DecimulGuitarsEditor::paint(juce::Graphics& g)
 
 void DecimulGuitarsEditor::resized()
 {
+    tips.layout(getLocalBounds());
+
     auto content = getLocalBounds().reduced(22, 18);
 
     topbarRect = content.removeFromTop(54);

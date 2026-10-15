@@ -7,6 +7,7 @@
 #include <DecimuLadderMeter.h>
 #include <DecimuVuArc.h>
 #include <DecimuPillButton.h>
+#include <DecimuTooltips.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /** Botón de una muestra del reproductor: número + nombre, con un destello cuando suena. */
@@ -142,8 +143,9 @@ private:
     int lastVoiceCount = 0;
     float hitFlash = 0.0f;
 
-    // Sin esto los tooltips no aparecen dentro de un host.
-    juce::TooltipWindow tooltipWindow { this, 600 };
+    // Textos de ayuda al pasar el puntero (inglés por defecto, botón EN/ES abajo). Sin la
+    // ventana de tooltips que trae esto, los setTooltip() no se ven dentro de un host.
+    DecimuTooltips tips { *this };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulTriggerEditor)
 };

@@ -87,8 +87,6 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     // Toggle de sync, generalizado desde Guitars (2da ronda de testing: "el BPM manual
     // no influye en nada" — es porque el host manda cuando da un tempo válido; este
     // switch deja forzar el manual/Tap). No es parámetro APVTS.
-    hostSyncButton.setTooltip("ON: el tempo del host manda cuando esta disponible (default). "
-                               "OFF: fuerza el BPM manual/TAP aunque haya host.");
     hostSyncButton.setToggleState(processorRef.hostSyncEnabled.load(), juce::dontSendNotification);
     hostSyncButton.onClick = [this] { processorRef.hostSyncEnabled.store(hostSyncButton.getToggleState()); };
     addAndMakeVisible(hostSyncButton);
@@ -99,7 +97,6 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     bpmLabel.setJustificationType(juce::Justification::centred);
     bpmLabel.setColour(juce::Label::textColourId, DecimuColours::textMuted);
     bpmLabel.setEditable(false, true, false);
-    bpmLabel.setTooltip("Tempo manual (fallback sin host): doble click para escribirlo, o TAP");
     bpmLabel.onEditorShow = [this]
     {
         if (auto* ed = bpmLabel.getCurrentTextEditor())
@@ -137,6 +134,68 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     spaceAEnabledAttach  = std::make_unique<ButtonAttachment>(apvts, ParamIDs::spaceAEnabled, spaceALedBtn);
     spaceBEnabledAttach  = std::make_unique<ButtonAttachment>(apvts, ParamIDs::spaceBEnabled, spaceBLedBtn);
     echoEnabledAttach    = std::make_unique<ButtonAttachment>(apvts, ParamIDs::echoEnabled, echoLedBtn);
+
+    // ---- Tooltips: inglés por defecto; el botón EN/ES de abajo los pasa a español ----
+    addAndMakeVisible(tips.getSwitch());
+
+    tips.add(inputSlider, "Input trim, -24 to +24 dB: the level the signal enters the plugin with.",
+             "Ganancia de entrada, -24 a +24 dB: el nivel con el que entra la señal al plugin.");
+    tips.add(lowSlider, "Low: low-shelf boost or cut, +/-12 dB. The selector above chooses where the shelf sits.",
+             "Low: realce o recorte de graves (shelf), +/-12 dB. El selector de arriba elige dónde actúa.");
+    tips.add(lowModeSel, "Low character = shelf frequency: Warm 200 Hz, Deep 80 Hz, Air-Cut 400 Hz.",
+             "Carácter de Low = frecuencia del shelf: Warm 200 Hz, Deep 80 Hz, Air-Cut 400 Hz.");
+    tips.add(lowLedBtn, "Low on/off. Switches the whole module off without touching its fader.",
+             "Low on/off. Apaga el módulo entero sin tocar su fader.");
+    tips.add(highSlider, "High: high-shelf boost or cut, +/-12 dB. The selector above chooses where the shelf sits.",
+             "High: realce o recorte de agudos (shelf), +/-12 dB. El selector de arriba elige dónde actúa.");
+    tips.add(highModeSel, "High character = shelf frequency: Silk 8 kHz, Sheen 5 kHz, Crisp 10 kHz.",
+             "Carácter de High = frecuencia del shelf: Silk 8 kHz, Sheen 5 kHz, Crisp 10 kHz.");
+    tips.add(highLedBtn, "High on/off. Switches the whole module off without touching its fader.",
+             "High on/off. Apaga el módulo entero sin tocar su fader.");
+    tips.add(compSlider, "Dynamics: compression amount, 0 to 100 %. More amount = lower threshold and a little makeup gain.",
+             "Dynamics: cantidad de compresión, 0 a 100 %. Más cantidad = umbral más bajo y un poco de ganancia de compensación.");
+    tips.add(compModeSel, "Compressor character: Glue (2:1, slow and smooth), Snap (4:1, fast attack), Squash (8:1, very fast and heavy).",
+             "Carácter del compresor: Glue (2:1, lento y suave), Snap (4:1, ataque rápido), Squash (8:1, muy rápido y pesado).");
+    tips.add(compLedBtn, "Dynamics on/off. Switches the whole module off without touching its fader.",
+             "Dynamics on/off. Apaga el módulo entero sin tocar su fader.");
+
+    tips.add(spaceASlider, "Space A: level of reverb A, 0 to 100 %. A and B run in parallel.",
+             "Space A: nivel de la reverb A, 0 a 100 %. A y B corren en paralelo.");
+    tips.add(spaceATypeSel, "Reverb A size: Room, Hall or Cathedral.",
+             "Tamaño de la reverb A: Room (sala), Hall o Cathedral (catedral).");
+    tips.add(spaceAPreDelayKnob, "Pre-delay of reverb A, 0 to 500 ms: time before the reverb starts.",
+             "Pre-delay de la reverb A, 0 a 500 ms: tiempo antes de que arranque la reverb.");
+    tips.add(spaceALedBtn, "Space A on/off. Switches the whole module off without touching its fader.",
+             "Space A on/off. Apaga el módulo entero sin tocar su fader.");
+    tips.add(spaceBSlider, "Space B: level of reverb B, 0 to 100 %. A and B run in parallel.",
+             "Space B: nivel de la reverb B, 0 a 100 %. A y B corren en paralelo.");
+    tips.add(spaceBTypeSel, "Reverb B size: Close, Wide or Vast.",
+             "Tamaño de la reverb B: Close (cerca), Wide (ancha) o Vast (inmensa).");
+    tips.add(spaceBPreDelayKnob, "Pre-delay of reverb B, 0 to 500 ms: time before the reverb starts.",
+             "Pre-delay de la reverb B, 0 a 500 ms: tiempo antes de que arranque la reverb.");
+    tips.add(spaceBLedBtn, "Space B on/off. Switches the whole module off without touching its fader.",
+             "Space B on/off. Apaga el módulo entero sin tocar su fader.");
+
+    tips.add(echoSlider, "Echo: level of the tempo-synced delay, 0 to 100 %.",
+             "Echo: nivel del delay sincronizado al tempo, 0 a 100 %.");
+    tips.add(echoDivisionSel, "Echo time, following the tempo: Slap (short slapback), 8th note or quarter note.",
+             "Tiempo del eco, siguiendo el tempo: Slap (rebote corto), corchea o negra.");
+    tips.add(echoFeedbackKnob, "Echo feedback, 0 to 100 %: how many repeats. 100 % repeats without dying out.",
+             "Feedback del eco, 0 a 100 %: cuántas repeticiones. 100 % repite sin apagarse.");
+    tips.add(echoLedBtn, "Echo on/off. Switches the whole module off without touching its fader.",
+             "Echo on/off. Apaga el módulo entero sin tocar su fader.");
+
+    tips.add(blendSlider, "Blend (dry/wet): how much of Space A, Space B and Echo you hear. Low, High and Dynamics are never diluted.",
+             "Blend (dry/wet): cuánto se escucha de Space A, Space B y Echo. Low, High y Dynamics nunca se diluyen.");
+    tips.add(outputSlider, "Output trim, -60 to +24 dB.", "Ganancia de salida, -60 a +24 dB.");
+    tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).",
+             "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
+    tips.add(tapTempoButton, "Tap the tempo here. Used when the host gives no tempo (or SYNC is off).",
+             "Tocá el tempo acá. Se usa cuando el host no da tempo (o SYNC está apagado).");
+    tips.add(bpmLabel, "Manual tempo for the Echo (fallback without host): double-click to type it, or use TAP.",
+             "Tempo manual del Echo (sin host): doble click para escribirlo, o usá TAP.");
+    tips.add(hostSyncButton, "SYNC on: the host tempo wins when it is available (default). Off: forces the manual BPM / TAP even with a host.",
+             "SYNC on: manda el tempo del host cuando está disponible (default). Off: fuerza el BPM manual / TAP aunque haya host.");
 
     setSize(1180, 560);
     setResizable(true, true);
@@ -191,6 +250,8 @@ void DecimulAcousticEditor::paint(juce::Graphics& g)
 
 void DecimulAcousticEditor::resized()
 {
+    tips.layout(getLocalBounds());
+
     auto content = getLocalBounds().reduced(22, 18);
 
     topbarRect = content.removeFromTop(54);

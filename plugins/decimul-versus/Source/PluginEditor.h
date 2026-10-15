@@ -8,6 +8,7 @@
 #include <DecimuLadderMeter.h>
 #include <DecimuVuArc.h>
 #include <DecimuPillButton.h>
+#include <DecimuTooltips.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /**
@@ -97,6 +98,9 @@ private:
     std::unique_ptr<ComboAttachment> sourceAAttach;
 
     std::unique_ptr<juce::FileChooser> chooser;
+
+    // Textos de ayuda al pasar el puntero (inglés por defecto, botón EN/ES abajo).
+    DecimuTooltips tips { *this };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulVersusEditor)
 };

@@ -7,6 +7,7 @@
 #include <DecimuLadderMeter.h>
 #include <DecimuVuArc.h>
 #include <DecimuLedButton.h>
+#include <DecimuTooltips.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /**
@@ -87,6 +88,9 @@ private:
                                        spaceAPreDelayAttach, spaceBPreDelayAttach, echoFeedbackAttach;
     std::unique_ptr<ButtonAttachment> bypassAttach, lowEnabledAttach, highEnabledAttach, compEnabledAttach,
                                        spaceAEnabledAttach, spaceBEnabledAttach, echoEnabledAttach;
+
+    // Textos de ayuda al pasar el puntero (inglés por defecto, botón EN/ES abajo).
+    DecimuTooltips tips { *this };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulAcousticEditor)
 };
