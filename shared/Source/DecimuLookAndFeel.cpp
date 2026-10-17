@@ -170,7 +170,8 @@ void DecimuLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int wi
 
     // Cuerpo del knob: sombra proyectada + degradé base + brillo especular arriba a
     // la izquierda, como una perilla real fotografiada con una luz de arriba.
-    auto knobBounds = bounds.reduced(radius * 0.34f);
+    // Siempre un círculo: si el slider no es cuadrado (ventana estirada) la perilla no se ovala.
+    auto knobBounds = juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre).reduced(radius * 0.34f);
 
     juce::Path knobPath;
     knobPath.addEllipse(knobBounds);

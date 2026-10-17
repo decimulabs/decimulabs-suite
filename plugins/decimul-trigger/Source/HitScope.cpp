@@ -48,6 +48,26 @@ void HitScope::setCalibration(float progress)
     }
 }
 
+void HitScope::setFilterView(float lowHz, float highHz, bool visible)
+{
+    if (lowHz != filterLowHz || highHz != filterHighHz || visible != filterVisible)
+    {
+        filterLowHz = lowHz;
+        filterHighHz = highHz;
+        filterVisible = visible;
+        repaint();
+    }
+}
+
+void HitScope::setListening(bool isListening)
+{
+    if (isListening != listening)
+    {
+        listening = isListening;
+        repaint();
+    }
+}
+
 juce::Rectangle<float> HitScope::plotArea() const
 {
     return getLocalBounds().toFloat().reduced(10.0f, 10.0f).withTrimmedLeft(30.0f);
@@ -167,11 +187,89 @@ void HitScope::paint(juce::Graphics& g)
         g.setColour(accent);
         g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * std::clamp(calibration, 0.0f, 1.0f)), 2.0f);
     }
-    else if (count == 0)
+    else if (count == 0 && !listening)
     {
         g.setColour(DecimuColours::textMuted);
         g.setFont(hudFont(*this, 18.0f));
         g.drawText("TOCA LA BATERIA: ACA SE VE EL NIVEL Y CADA GOLPE DETECTADO", a, juce::Justification::centred);
+    }
+
+    // ---- Escuchando la detección: cartel arriba ----
+    if (listening && calibration < 0.0f)
+    {
+        auto banner = a.withSizeKeepingCentre(std::min(a.getWidth() - 40.0f, 560.0f), 26.0f).withY(a.getY() + 8.0f);
+        g.setColour(DecimuColours::background.withAlpha(0.88f));
+        g.fillRoundedRectangle(banner, 6.0f);
+        g.setColour(DecimuColours::accentRec);
+        g.drawRoundedRectangle(banner, 6.0f, 1.4f);
+        g.setFont(hudFont(*this, 17.0f));
+        g.drawText("ESCUCHANDO LA DETECCION (mono, con Low / High Cut)", banner, juce::Justification::centred);
+    }
+
+    // ---- Respuesta del filtro de detección ----
+    if (filterVisible)
+    {
+        constexpr float boxW = 320.0f, boxH = 124.0f;
+        auto box = a.withSizeKeepingCentre(std::min(boxW, a.getWidth() - 20.0f), std::min(boxH, a.getHeight() - 10.0f));
+        box.setY(a.getBottom() - box.getHeight() - 6.0f);
+        g.setColour(DecimuColours::background.withAlpha(0.90f));
+        g.fillRoundedRectangle(box, 6.0f);
+        g.setColour(accent.withAlpha(0.8f));
+        g.drawRoundedRectangle(box, 6.0f, 1.2f);
+
+        g.setFont(hudFont(*this, 13.0f));
+        g.setColour(DecimuColours::textMuted);
+        g.drawText("FILTRO DE DETECCION (24 dB/oct)", box.reduced(8.0f, 3.0f).removeFromTop(14.0f), juce::Justification::centredLeft);
+
+        auto plot = box.reduced(10.0f, 22.0f);
+        plot.removeFromBottom(2.0f);
+        constexpr float fMin = 20.0f, fMax = 20000.0f, dbMin = -48.0f, dbMax = 6.0f;
+        auto xOf = [&](float f) { return plot.getX() + std::log10(f / fMin) / std::log10(fMax / fMin) * plot.getWidth(); };
+        auto yOf = [&](float db) { return plot.getBottom() - (std::clamp(db, dbMin, dbMax) - dbMin) / (dbMax - dbMin) * plot.getHeight(); };
+
+        // Rejilla: 100 Hz, 1 kHz, 10 kHz y 0 dB
+        g.setColour(DecimuColours::textMuted.withAlpha(0.25f));
+        for (float f : { 100.0f, 1000.0f, 10000.0f })
+            g.drawVerticalLine((int) xOf(f), plot.getY(), plot.getBottom());
+        g.drawHorizontalLine((int) yOf(0.0f), plot.getX(), plot.getRight());
+        g.setColour(DecimuColours::textMuted);
+        g.setFont(hudFont(*this, 11.0f));
+        const std::pair<float, const char*> gridLabels[] = { { 100.0f, "100" }, { 1000.0f, "1k" }, { 10000.0f, "10k" } };
+        for (const auto& [f, label] : gridLabels)
+            g.drawText(label, juce::Rectangle<float>(xOf(f) - 14.0f, plot.getBottom() - 11.0f, 28.0f, 11.0f), juce::Justification::centred);
+
+        // Curva: pasa-altos x pasa-bajos de Butterworth de 4º orden
+        juce::Path curve;
+        const int steps = std::max(2, (int) plot.getWidth());
+        for (int i = 0; i <= steps; ++i)
+        {
+            const float f = fMin * std::pow(fMax / fMin, (float) i / (float) steps);
+            const float hp = 1.0f / (1.0f + std::pow(filterLowHz / f, 8.0f));
+            const float lp = 1.0f / (1.0f + std::pow(f / filterHighHz, 8.0f));
+            const float db = 10.0f * std::log10(std::max(hp * lp, 1.0e-6f));
+            const float x = plot.getX() + plot.getWidth() * (float) i / (float) steps;
+            const float y = yOf(db);
+            if (i == 0) curve.startNewSubPath(x, y); else curve.lineTo(x, y);
+        }
+        juce::Path fill(curve);
+        fill.lineTo(plot.getRight(), plot.getBottom());
+        fill.lineTo(plot.getX(), plot.getBottom());
+        fill.closeSubPath();
+        g.setColour(accent.withAlpha(0.18f));
+        g.fillPath(fill);
+        g.setColour(accent);
+        g.strokePath(curve, juce::PathStrokeType(2.0f));
+
+        // Marcas de los dos cortes
+        g.setColour(DecimuColours::accentRec.withAlpha(0.85f));
+        g.setFont(hudFont(*this, 12.0f));
+        auto cutLabel = [](float hz) { return hz >= 1000.0f ? juce::String(hz / 1000.0f, 1) + "k" : juce::String((int) std::lround(hz)); };
+        for (float f : { filterLowHz, filterHighHz })
+        {
+            const float x = xOf(std::clamp(f, fMin, fMax));
+            g.drawVerticalLine((int) x, plot.getY(), plot.getBottom());
+            g.drawText(cutLabel(f), juce::Rectangle<float>(x - 20.0f, plot.getY(), 40.0f, 12.0f), juce::Justification::centred);
+        }
     }
 }
 

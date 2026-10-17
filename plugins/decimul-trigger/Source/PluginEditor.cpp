@@ -88,12 +88,15 @@ void DecimulTriggerEditor::addKnob(Knob& k, const juce::String& paramID, const j
 // Rotary cuadrado (si el slider es más ancho que alto el knob sale ovalado).
 void DecimulTriggerEditor::placeKnob(Knob& k, juce::Rectangle<int> cell)
 {
-    k.label.setBounds(cell.removeFromTop(16));
+    const auto labelCell = cell;       // el rótulo se ubica pegado al knob, abajo
+    cell.removeFromTop(16);
 
     const int side = std::max(30, std::min(cell.getWidth(), cell.getHeight() - 18));
     const int width = std::max(side, 52);
     k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, width, 16);
-    k.slider.setBounds(cell.withSizeKeepingCentre(width, side + 18));
+    const auto sliderBounds = cell.withSizeKeepingCentre(width, side + 18);
+    k.slider.setBounds(sliderBounds);
+    k.label.setBounds(labelCell.getX(), sliderBounds.getY() - 16, labelCell.getWidth(), 16);
 }
 
 DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
@@ -343,6 +346,8 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     }
     lastHitCount = processorRef.hitCount.load();
     lastVoiceCount = processorRef.voiceCount.load();
+    lastLowCutSeen = apvts.getRawParameterValue(ParamIDs::lowCut)->load();
+    lastHighCutSeen = apvts.getRawParameterValue(ParamIDs::highCut)->load();
 
     // ---- Tooltips: inglés por defecto; el botón EN/ES de abajo los pasa a español ----
     addAndMakeVisible(tips.getSwitch());
@@ -361,14 +366,14 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
              "Scan, 0.5 a 10 ms: cuánto tiempo después del ataque se mide el pico para sacar la velocity. Más largo es más preciso con ataques lentos, pero el MIDI sale más tarde.");
     tips.add(retriggerKnob.slider, "Retrigger, 5 to 250 ms: dead time after a hit, and how fast the previous hit's level fades as the bar a new hit has to beat. Stops ringing and bleed from retriggering.",
              "Retrigger, 5 a 250 ms: tiempo muerto después de un golpe y qué tan rápido decae el nivel del golpe anterior, que es lo que tiene que superar uno nuevo. Evita que el ring o el bleed retriggueen.");
-    tips.add(lowCutKnob.slider, "Low cut of the detection signal, 20 to 500 Hz. It only changes what the detector hears, not your audio.",
-             "Corte de graves de la señal de detección, 20 a 500 Hz. Solo cambia lo que oye el detector, no tu audio.");
-    tips.add(highCutKnob.slider, "High cut of the detection signal, 1 to 20 kHz. It only changes what the detector hears, not your audio.",
-             "Corte de agudos de la señal de detección, 1 a 20 kHz. Solo cambia lo que oye el detector, no tu audio.");
+    tips.add(lowCutKnob.slider, "Low cut of the detection signal, 20 Hz to 5 kHz, 24 dB/oct. It only changes what the DETECTOR hears (not your audio): raise it to ignore a kick when detecting a snare or hi-hat. A curve shows the filter while you move it.",
+             "Corte de graves de la señal de detección, 20 Hz a 5 kHz, 24 dB/oct. Solo cambia lo que oye el DETECTOR (no tu audio): subilo para ignorar un bombo al detectar una caja o un hi-hat. Una curva muestra el filtro mientras lo movés.");
+    tips.add(highCutKnob.slider, "High cut of the detection signal, 100 Hz to 20 kHz, 24 dB/oct. It only changes what the DETECTOR hears (not your audio): lower it to ignore cymbals when detecting a kick or toms.",
+             "Corte de agudos de la señal de detección, 100 Hz a 20 kHz, 24 dB/oct. Solo cambia lo que oye el DETECTOR (no tu audio): bajalo para ignorar los platos al detectar un bombo o toms.");
     tips.add(onsetKnob.slider, "Attack, 1 to 12 dB: how much the level has to jump to count as a new hit. Lower detects softer or closely packed hits (with more false ones); higher accepts only sharp attacks.",
              "Ataque, 1 a 12 dB: cuánto tiene que subir de golpe el nivel para contar como golpe nuevo. Más bajo detecta golpes más suaves o pegados (con más falsos); más alto acepta solo ataques secos.");
-    tips.add(listenPill, "Listen to the detection signal (after the Low / High cut) to set those two by ear.",
-             "Escucha la señal de detección (después del Low / High Cut) para ajustar esos dos de oído.");
+    tips.add(listenPill, "Listen to the detection signal instead of your audio: mono, after the Low / High cut. Use it to set those two by ear; turn it off to hear your audio again.",
+             "Escuchás la señal de detección en vez de tu audio: en mono, después del Low / High Cut. Sirve para ajustar esos dos de oído; apagalo para volver a oír tu audio.");
     tips.add(calibratePill, "Listens for about 6 seconds and sets Threshold and Max Level for you: Max Level is the loudest hit it heard, and the threshold sits above the noise floor. Play from soft to loud, with pauses between hits.",
              "Escucha unos 6 segundos y ajusta Threshold y Max Level solos: el Max Level es el golpe más fuerte que oyó y el umbral queda sobre el ruido de fondo. Tocá de suave a fuerte, con pausas entre golpes.");
 
@@ -891,6 +896,21 @@ void DecimulTriggerEditor::timerCallback()
     }
     scope.setThresholdDb(get(ParamIDs::threshold));
     scope.setMaxLevelDb(get(ParamIDs::maxLevel));
+
+    // Filtro de detección: la curva aparece al mover Low / High Cut y mientras se escucha la detección.
+    {
+        const float lowCut = get(ParamIDs::lowCut), highCut = get(ParamIDs::highCut);
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        if (std::abs(lowCut - lastLowCutSeen) > 0.01f || std::abs(highCut - lastHighCutSeen) > 0.01f)
+        {
+            lastLowCutSeen = lowCut;
+            lastHighCutSeen = highCut;
+            filterShownUntilMs = now + 2500.0;
+        }
+        const bool listening = get(ParamIDs::listen) > 0.5f;
+        scope.setListening(listening);
+        scope.setFilterView(lowCut, std::max(highCut, lowCut * 1.3f), listening || now < filterShownUntilMs);
+    }
 
     const bool calibrating = processorRef.isCalibrating();
     scope.setCalibration(calibrating ? processorRef.getCalibrationProgress() : -1.0f);

@@ -36,6 +36,13 @@ public:
     /** Menor que 0: nada. De 0 a 1: avance de la calibración (muestra un cartel arriba). */
     void setCalibration(float progress);
 
+    /** Respuesta del filtro de detección (Low / High Cut): se dibuja como curva mientras
+        visible (al tocar los knobs o al escuchar la detección). */
+    void setFilterView(float lowHz, float highHz, bool visible);
+
+    /** Suena la señal de detección en vez del audio (botón "oír detección"). */
+    void setListening(bool isListening);
+
     std::function<void(float)> onThresholdDragged;
     std::function<void(float)> onMaxLevelDragged;
 
@@ -55,6 +62,8 @@ private:
     float thresholdDb = -30.0f, maxLevelDb = -6.0f;
     int hoverLine = -1, dragLine = -1;
     float calibration = -1.0f;
+    float filterLowHz = 60.0f, filterHighHz = 14000.0f;
+    bool filterVisible = false, listening = false;
 };
 
 /** Lectura grande del último golpe: velocity, parecido con la huella y un destello. */

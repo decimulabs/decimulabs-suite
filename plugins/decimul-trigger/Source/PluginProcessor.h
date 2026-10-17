@@ -291,7 +291,9 @@ private:
 
     // --- Detección ---
     HitDetector detector;
-    DetectionBiquad detHighpass, detLowpass;
+    // Cortes de la señal de detección: 4º orden (24 dB/oct), dos biquads en cascada con los
+    // Q de un Butterworth, así separan de verdad un instrumento de otro.
+    DetectionBiquad detHighpass[2], detLowpass[2];
     float lastLowCut = -1.0f, lastHighCut = -1.0f;
 
     // --- Huella ---

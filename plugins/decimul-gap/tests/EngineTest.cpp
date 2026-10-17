@@ -132,6 +132,10 @@ int main(int argc, char** argv)
 
         std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
         editor->setSize(1100, 640);
+        // DECIMU_SHOT_SIZE=1700x1000 estira la ventana (para revisar que las perillas no se ovalen).
+        if (const auto shotSize = juce::SystemStats::getEnvironmentVariable("DECIMU_SHOT_SIZE", {}); shotSize.contains("x"))
+            editor->setSize(shotSize.upToFirstOccurrenceOf("x", false, false).getIntValue(),
+                            shotSize.fromFirstOccurrenceOf("x", false, false).getIntValue());
         juce::MessageManager::getInstance()->runDispatchLoopUntil(500);
 
         const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);

@@ -203,6 +203,10 @@ int main(int argc, char** argv)
         // El editor se abre antes de procesar: al construirse descarta lo que había en la cola.
         std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
         editor->setSize(1000, 560);
+        // DECIMU_SHOT_SIZE=1700x1000 estira la ventana (para revisar que las perillas no se ovalen).
+        if (const auto shotSize = juce::SystemStats::getEnvironmentVariable("DECIMU_SHOT_SIZE", {}); shotSize.contains("x"))
+            editor->setSize(shotSize.upToFirstOccurrenceOf("x", false, false).getIntValue(),
+                            shotSize.fromFirstOccurrenceOf("x", false, false).getIntValue());
 
         auto voice = fakeVoice(2.2);
         run(*p, voice);

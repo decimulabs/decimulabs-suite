@@ -34,6 +34,7 @@ private:
 
     void timerCallback() override;
     void addKnob(Knob& k, const juce::String& paramID, const juce::String& caption);
+    static void placeKnob(Knob& k, juce::Rectangle<int> cell);
 
     DecimulCarveProcessor& processorRef;
     DecimuLookAndFeel lookAndFeel { DecimuAccentTheme::violetPink() };

@@ -16,6 +16,21 @@ void DecimulCarveEditor::addKnob(Knob& k, const juce::String& paramID, const juc
     k.attachment = std::make_unique<SliderAttachment>(processorRef.apvts, paramID, k.slider);
 }
 
+// Rotary cuadrado (si el slider es más ancho que alto el knob sale ovalado) con el rótulo
+// pegado arriba y el valor abajo; queda centrado en la celda aunque se estire la ventana.
+void DecimulCarveEditor::placeKnob(Knob& k, juce::Rectangle<int> cell)
+{
+    const auto labelCell = cell;
+    cell.removeFromTop(16);
+
+    const int side = std::max(40, std::min(cell.getWidth(), cell.getHeight() - 18));
+    const int width = std::max(side, 56);
+    k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, width, 16);
+    const auto sliderBounds = cell.withSizeKeepingCentre(width, side + 18);
+    k.slider.setBounds(sliderBounds);
+    k.label.setBounds(labelCell.getX(), sliderBounds.getY() - 16, labelCell.getWidth(), 16);
+}
+
 DecimulCarveEditor::DecimulCarveEditor(DecimulCarveProcessor& p)
     : juce::AudioProcessorEditor(&p), processorRef(p)
 {
@@ -64,8 +79,8 @@ DecimulCarveEditor::DecimulCarveEditor(DecimulCarveProcessor& p)
     // ---- Tooltips: inglés por defecto; el botón EN/ES de abajo los pasa a español ----
     addAndMakeVisible(tips.getSwitch());
 
-    tips.add(display, "32-band display. Bottom: the level of the sidechain in each band. Top: the cut Carve applies to this track there.",
-             "Pantalla de 32 bandas. Abajo: el nivel del sidechain en cada banda. Arriba: el recorte que Carve le aplica a esta pista ahí.");
+    tips.add(display, "32-band display. Top (left scale, dB): the cut Carve applies to this track in each band. Bottom (right scale, dBFS): the level of the sidechain. Top right: the maximum cut right now and where. Hover a band for its exact values.",
+             "Pantalla de 32 bandas. Arriba (escala de la izquierda, dB): el recorte que Carve le aplica a esta pista en cada banda. Abajo (escala de la derecha, dBFS): el nivel del sidechain. Arriba a la derecha: el recorte máximo ahora y en qué frecuencia. Pasá el mouse por una banda para ver sus valores exactos.");
     tips.add(amountKnob.slider, "Amount, 0 to 100 %: the maximum cut (100 % is about 24 dB in very loaded bands).",
              "Amount, 0 a 100 %: cuánto recorta como máximo (100 % son unos 24 dB en bandas muy cargadas).");
     tips.add(scGainKnob.slider, "Sidechain gain, +/-24 dB: gain applied to the sidechain before measuring it. Louder = it cuts more.",
@@ -170,8 +185,7 @@ void DecimulCarveEditor::resized()
         auto place = [&](Knob& k, int row, int col)
         {
             auto cell = juce::Rectangle<int>(grid.getX() + col * colW, grid.getY() + row * rowH, colW, rowH).reduced(2);
-            k.label.setBounds(cell.removeFromTop(16));
-            k.slider.setBounds(cell);
+            placeKnob(k, cell);
         };
         place(amountKnob, 0, 0);
         place(scGainKnob, 0, 1);

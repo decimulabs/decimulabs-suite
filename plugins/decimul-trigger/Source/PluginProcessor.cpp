@@ -84,9 +84,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulTriggerProcessor::cre
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::retrigger), "Retrigger", NormalisableRange<float>(5.0f, 250.0f, 1.0f, 0.5f), 35.0f, msAttr));
     params.push_back(std::make_unique<AudioParameterFloat>(
-        pid(ParamIDs::lowCut), "Low Cut", NormalisableRange<float>(20.0f, 500.0f, 1.0f, 0.5f), 60.0f, hzAttr));
+        pid(ParamIDs::lowCut), "Low Cut", NormalisableRange<float>(20.0f, 5000.0f, 1.0f, 0.4f), 60.0f, hzAttr));
     params.push_back(std::make_unique<AudioParameterFloat>(
-        pid(ParamIDs::highCut), "High Cut", NormalisableRange<float>(1000.0f, 20000.0f, 1.0f, 0.4f), 14000.0f, hzAttr));
+        pid(ParamIDs::highCut), "High Cut", NormalisableRange<float>(100.0f, 20000.0f, 1.0f, 0.4f), 14000.0f, hzAttr));
     params.push_back(std::make_unique<AudioParameterBool>(pid(ParamIDs::listen), "Listen Detection", false));
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::onset), "Attack Rise", NormalisableRange<float>(1.0f, 12.0f, 0.1f), 5.1f, dbAttr));
@@ -185,8 +185,8 @@ void DecimulTriggerProcessor::prepareToPlay(double sampleRate, int)
     calDetector.prepare(sampleRate);
     calibrating.store(false);
     bank.prepare(sampleRate);
-    detHighpass.reset();
-    detLowpass.reset();
+    for (auto& f : detHighpass) f.reset();
+    for (auto& f : detLowpass) f.reset();
     lastLowCut = lastHighCut = -1.0f;
 
     std::fill(delayL.begin(), delayL.end(), 0.0f);
@@ -246,14 +246,19 @@ void DecimulTriggerProcessor::updateReportedLatency()
 
 void DecimulTriggerProcessor::updateFilters(float lowHz, float highHz)
 {
+    // Butterworth de 4º orden = dos secciones de 2º orden con estos Q
+    constexpr double q1 = 0.5411961, q2 = 1.3065630;
+
     if (lowHz != lastLowCut)
     {
-        detHighpass.setHighpass(currentSampleRate, lowHz);
+        detHighpass[0].setHighpass(currentSampleRate, lowHz, q1);
+        detHighpass[1].setHighpass(currentSampleRate, lowHz, q2);
         lastLowCut = lowHz;
     }
     if (highHz != lastHighCut)
     {
-        detLowpass.setLowpass(currentSampleRate, highHz);
+        detLowpass[0].setLowpass(currentSampleRate, highHz, q1);
+        detLowpass[1].setLowpass(currentSampleRate, highHz, q2);
         lastHighCut = highHz;
     }
 }
@@ -438,7 +443,10 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     const float retriggerMs = get(ParamIDs::retrigger);
     const int noteLenSamples = std::max(1, (int) std::lround((double) get(ParamIDs::noteLen) * 0.001 * sr));
 
-    updateFilters(get(ParamIDs::lowCut), get(ParamIDs::highCut));
+    // Si el High Cut queda por debajo del Low Cut la banda sería vacía y el detector no oiría
+    // nada: en ese caso queda una banda angosta justo arriba del Low Cut.
+    const float lowCutHz = get(ParamIDs::lowCut);
+    updateFilters(lowCutHz, std::max(get(ParamIDs::highCut), lowCutHz * 1.3f));
 
     HitDetector::Params dp;
     dp.thresholdLin = juce::Decibels::decibelsToGain(thresholdDb);
@@ -637,7 +645,7 @@ void DecimulTriggerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
         // Detección: mono, pasa-banda
         float d = 0.5f * (detL[i] + detR[i]);
-        d = detLowpass.process(detHighpass.process(d));
+        d = detLowpass[1].process(detLowpass[0].process(detHighpass[1].process(detHighpass[0].process(d))));
 
         // Audio original, con el retardo opcional
         delayL[(size_t) delayWrite] = inL;

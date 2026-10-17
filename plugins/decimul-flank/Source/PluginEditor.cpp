@@ -25,12 +25,15 @@ void DecimulFlankEditor::addKnob(Knob& k, const juce::String& paramID, const juc
 // Rotary cuadrado (si el slider es más ancho que alto el knob sale ovalado).
 void DecimulFlankEditor::placeKnob(Knob& k, juce::Rectangle<int> cell)
 {
-    k.label.setBounds(cell.removeFromTop(16));
+    const auto labelCell = cell;       // el rótulo se ubica pegado al knob, abajo
+    cell.removeFromTop(16);
 
     const int side = std::max(40, std::min(cell.getWidth(), cell.getHeight() - 18));
     const int width = std::max(side, 56);
     k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, width, 16);
-    k.slider.setBounds(cell.withSizeKeepingCentre(width, side + 18));
+    const auto sliderBounds = cell.withSizeKeepingCentre(width, side + 18);
+    k.slider.setBounds(sliderBounds);
+    k.label.setBounds(labelCell.getX(), sliderBounds.getY() - 16, labelCell.getWidth(), 16);
 }
 
 DecimulFlankEditor::DecimulFlankEditor(DecimulFlankProcessor& p)

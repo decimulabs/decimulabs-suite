@@ -326,6 +326,10 @@ int main(int argc, char** argv)
         // El editor se abre antes de tocar: al abrirse descarta lo que había en la cola.
         std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
         editor->setSize(1180, 880);
+        // DECIMU_SHOT_SIZE=1700x1000 estira la ventana (para revisar que las perillas no se ovalen).
+        if (const auto shotSize = juce::SystemStats::getEnvironmentVariable("DECIMU_SHOT_SIZE", {}); shotSize.contains("x"))
+            editor->setSize(shotSize.upToFirstOccurrenceOf("x", false, false).getIntValue(),
+                            shotSize.fromFirstOccurrenceOf("x", false, false).getIntValue());
 
         // 1) Aprende la huella de la caja (8 golpes solos).
         p->startLearning();
@@ -364,6 +368,16 @@ int main(int argc, char** argv)
             run(*p, silence(1.5));
         }
         juce::MessageManager::getInstance()->runDispatchLoopUntil(600);
+
+        // Con --filtro se escucha la detección con los cortes movidos (se ve el cartel y la curva del filtro).
+        if (argc >= 4 && juce::String(argv[3]) == "--filtro")
+        {
+            setParam(*p, ParamIDs::listen, 1.0f);
+            setParam(*p, ParamIDs::lowCut, 300.0f);
+            setParam(*p, ParamIDs::highCut, 3500.0f);
+            run(*p, silence(0.3));
+            juce::MessageManager::getInstance()->runDispatchLoopUntil(400);
+        }
 
         // Con --tips se muestra un tooltip de ejemplo (así se ve el estilo sin tener que pasar el mouse).
         if (argc >= 4 && juce::String(argv[3]) == "--tips")
@@ -1245,6 +1259,55 @@ int main(int argc, char** argv)
         p->prepareToPlay(96000.0, blockSize);
         check(before == 1 && midiBefore == 1 && p->getTakeCount() == 0 && p->getRecordedMidiHits() == 0,
               "cambiar el sample rate descarta las tomas y el MIDI grabados");
+    }
+
+    // ================= Filtro de detección: 4º orden y rangos nuevos =================
+    {
+        // Respuesta medida por el camino de "oír detección" contra la teórica de un Butterworth de 4º orden.
+        auto gainAt = [](float lowCut, float highCut, double freq)
+        {
+            auto p = makeProcessor();
+            setParam(*p, ParamIDs::listen, 1.0f);
+            setParam(*p, ParamIDs::lowCut, lowCut);
+            setParam(*p, ParamIDs::highCut, highCut);
+            std::vector<float> x((size_t) (1.0 * sr));
+            for (size_t i = 0; i < x.size(); ++i)
+                x[i] = 0.2f * (float) std::sin(2.0 * pi * freq * (double) i / sr);
+            const auto cap = run(*p, x);
+            return (double) toneAmplitude(cap.l, 12000, 24000, freq) / 0.2;
+        };
+        auto theory = [](double low, double high, double f)
+        {
+            return 1.0 / std::sqrt(1.0 + std::pow(low / f, 8.0)) / std::sqrt(1.0 + std::pow(f / high, 8.0));
+        };
+
+        const double freqs[] = { 100.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0 };
+        bool shapeOk = true;
+        juce::String detail;
+        for (double f : freqs)
+        {
+            const double measured = gainAt(500.0f, 2000.0f, f);
+            const double expected = theory(500.0, 2000.0, f);
+            const bool deep = expected < 0.02;
+            const bool ok = deep ? measured < 0.02 : std::abs(measured / expected - 1.0) < 0.12;
+            shapeOk = shapeOk && ok;
+            detail += juce::String((int) f) + ":" + juce::String(measured, 3) + "/" + juce::String(expected, 3) + " ";
+        }
+        check(shapeOk, "filtro de detección: 24 dB/oct, la respuesta medida coincide con un Butterworth de 4º orden", detail);
+
+        const double low60 = gainAt(60.0f, 14000.0f, 60.0), mid = gainAt(60.0f, 14000.0f, 1000.0), high14 = gainAt(60.0f, 14000.0f, 14000.0);
+        check(std::abs(low60 - 0.7071) < 0.04 && std::abs(mid - 1.0) < 0.03 && std::abs(high14 - 0.7071) < 0.05,
+              "valores por defecto (60 Hz / 14 kHz): -3 dB en los cortes y plano en el medio",
+              juce::String(low60, 3) + " / " + juce::String(mid, 3) + " / " + juce::String(high14, 3));
+
+        // Rangos: ahora se puede aislar un bombo (High Cut bajo) o un hi-hat (Low Cut alto).
+        const double kickBand = gainAt(20.0f, 150.0f, 5000.0), hatBand = gainAt(5000.0f, 20000.0f, 200.0);
+        check(kickBand < 0.001 && hatBand < 0.001, "High Cut a 150 Hz y Low Cut a 5 kHz: dejan afuera lo que corresponde",
+              juce::String(kickBand, 5) + " / " + juce::String(hatBand, 5));
+
+        // Low Cut por encima del High Cut: no queda silencio, queda una banda angosta arriba del Low Cut.
+        const double inverted = gainAt(2000.0f, 500.0f, 2300.0);
+        check(inverted > 0.5, "Low Cut por encima del High Cut: el detector no queda sordo", juce::String(inverted, 3));
     }
 
     // ================= Estado =================

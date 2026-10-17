@@ -32,6 +32,16 @@ Si el sidechain no está ruteado, Carve no toca nada y la pantalla avisa.
 | RECORTA DESDE / HASTA | Rango de frecuencias donde puede recortar |
 | OUTPUT | Trim de salida |
 
+## La pantalla
+
+- **Arriba** (color de acento) cuelga el recorte que Carve le aplica a la pista en cada una de las 32
+  bandas; **abajo** (gris) sube el nivel del sidechain en esa banda.
+- **Escalas en dB**: a la izquierda la del recorte (0 a -24 dB, de arriba hacia abajo), a la derecha la
+  del sidechain (0 a -60 dBFS, de abajo hacia arriba).
+- Arriba a la derecha dice cuánto es el **recorte máximo** en este momento y en qué frecuencia
+  ("RECORTE MAX -9.2 dB EN 31 Hz"), o "SIN RECORTE".
+- Al **pasar el mouse por una banda** muestra su frecuencia, su recorte y el nivel del sidechain exactos.
+
 ## DSP
 
 - **Análisis:** el sidechain (suma a mono) pasa por 32 pasa-bandas (2 biquads en cascada

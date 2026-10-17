@@ -141,6 +141,8 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
     int lastHitCount = 0;
     int lastVoiceCount = 0;
+    float lastLowCutSeen = -1.0f, lastHighCutSeen = -1.0f;   // para mostrar la curva del filtro al moverlos
+    double filterShownUntilMs = 0.0;
     float hitFlash = 0.0f;
 
     // Textos de ayuda al pasar el puntero (inglés por defecto, botón EN/ES abajo). Sin la
