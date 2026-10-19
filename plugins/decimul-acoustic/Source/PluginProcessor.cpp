@@ -61,8 +61,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
         pid(ParamIDs::compAmount), "Dynamics", pctRange, 0.0f, pctAttr));
     params.push_back(std::make_unique<AudioParameterChoice>(
         pid(ParamIDs::compMode), "Dynamics Character", StringArray { "Glue", "Snap", "Squash" }, 0));
-    params.push_back(std::make_unique<AudioParameterChoice>(
-        pid(ParamIDs::compOversample), "Oversample", StringArray { "Off", "2x", "4x" }, 0));
     params.push_back(std::make_unique<AudioParameterBool>(
         pid(ParamIDs::compEnabled), "Dynamics Enabled", true));
 
@@ -74,8 +72,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::spaceAPreDelay), "Space A Pre-Delay", dbRange(0.0f, 500.0f), 0.0f, msAttr));
     params.push_back(std::make_unique<AudioParameterBool>(
-        pid(ParamIDs::spaceAPreDelaySync), "Space A Pre-Delay Sync", false));
-    params.push_back(std::make_unique<AudioParameterBool>(
         pid(ParamIDs::spaceAEnabled), "Space A Enabled", true));
 
     // --- Space B (reverb 2) ---
@@ -85,8 +81,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
         pid(ParamIDs::spaceBType), "Space B Type", StringArray { "Close", "Wide", "Vast" }, 0));
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::spaceBPreDelay), "Space B Pre-Delay", dbRange(0.0f, 500.0f), 0.0f, msAttr));
-    params.push_back(std::make_unique<AudioParameterBool>(
-        pid(ParamIDs::spaceBPreDelaySync), "Space B Pre-Delay Sync", false));
     params.push_back(std::make_unique<AudioParameterBool>(
         pid(ParamIDs::spaceBEnabled), "Space B Enabled", true));
 
@@ -128,27 +122,26 @@ void DecimulAcousticProcessor::prepareToPlay(double sampleRate, int samplesPerBl
     outputGain.prepare(spec);
     inputGain.setRampDurationSeconds(0.02);
     outputGain.setRampDurationSeconds(0.02);
+    // juce::dsp::Gain arranca en 0: sin esto el audio entraba con un fade-in de 20 ms.
+    inputGain.setGainLinear(1.0f);
+    outputGain.setGainLinear(1.0f);
+    inputGain.reset();
+    outputGain.reset();
 
-    lowFilter.prepare(spec);
-    highFilter.prepare(spec);
+    lowBand.prepare(sampleRate, decimu::fx::EqBand::Type::lowShelf);
+    highBand.prepare(sampleRate, decimu::fx::EqBand::Type::highShelf);
 
-    compressor.prepare(spec);
+    compressor.prepare(sampleRate);
 
-    reverbA.prepare(spec);
-    reverbB.prepare(spec);
-    reverbA.reset();
-    reverbB.reset();
+    reverbA.prepare(sampleRate, 0);
+    reverbB.prepare(sampleRate, 1);
+    preDelayA.prepare(sampleRate, 0.6);
+    preDelayB.prepare(sampleRate, 0.6);
 
-    delayLine.setMaximumDelayInSamples((int) (2.0 * sampleRate));
-    delayLine.prepare(spec);
-    delayLine.reset();
+    echo.prepare(sampleRate);
 
-    preDelayA.setMaximumDelayInSamples((int) (0.6 * sampleRate));
-    preDelayB.setMaximumDelayInSamples((int) (0.6 * sampleRate));
-    preDelayA.prepare(spec);
-    preDelayB.prepare(spec);
-    preDelayA.reset();
-    preDelayB.reset();
+    blendSmoothed.reset(sampleRate, 0.02);
+    blendSmoothed.setCurrentAndTargetValue(apvts.getRawParameterValue(ParamIDs::blend)->load() / 100.0f);
 
     dryBuffer.setSize((int) spec.numChannels, samplesPerBlock);
     scratchBuffer.setSize((int) spec.numChannels, samplesPerBlock);
@@ -239,33 +232,28 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 
     inputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
 
-    // --- Tone: Low + High shelving, 3 "carácter" por banda ---
+    // --- Tone: Low + High shelving, 3 "carácter" por banda (frecuencia y ganancia suavizadas) ---
+    float* chL = buffer.getWritePointer(0);
+    float* chR = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
+
     if (apvts.getRawParameterValue(ParamIDs::lowEnabled)->load() > 0.5f)
     {
         const float lowGainDb = apvts.getRawParameterValue(ParamIDs::lowGain)->load();
         const int lowMode = (int) apvts.getRawParameterValue(ParamIDs::lowMode)->load();
         const float lowFreq = lowMode == 0 ? 200.0f : (lowMode == 1 ? 80.0f : 400.0f); // Warm/Deep/Air-Cut
-        *lowFilter.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(
-            currentSampleRate, lowFreq, 0.7071f, juce::Decibels::decibelsToGain(lowGainDb));
-
-        juce::dsp::AudioBlock<float> block(buffer);
-        juce::dsp::ProcessContextReplacing<float> context(block);
-        lowFilter.process(context);
+        lowBand.set(lowFreq, lowGainDb);
+        lowBand.process(chL, chR, numSamples);
     }
     if (apvts.getRawParameterValue(ParamIDs::highEnabled)->load() > 0.5f)
     {
         const float highGainDb = apvts.getRawParameterValue(ParamIDs::highGain)->load();
         const int highMode = (int) apvts.getRawParameterValue(ParamIDs::highMode)->load();
         const float highFreq = highMode == 0 ? 8000.0f : (highMode == 1 ? 5000.0f : 10000.0f); // Silk/Sheen/Crisp
-        *highFilter.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(
-            currentSampleRate, highFreq, 0.7071f, juce::Decibels::decibelsToGain(highGainDb));
-
-        juce::dsp::AudioBlock<float> block(buffer);
-        juce::dsp::ProcessContextReplacing<float> context(block);
-        highFilter.process(context);
+        highBand.set(highFreq, highGainDb);
+        highBand.process(chL, chR, numSamples);
     }
 
-    // --- Dynamics: compresor mapeado desde compAmount (0-100%) + compMode ---
+    // --- Dynamics: compresor ligado (mismo recorte en L y R) mapeado desde compAmount + compMode ---
     if (apvts.getRawParameterValue(ParamIDs::compEnabled)->load() > 0.5f)
     {
         const float amount = apvts.getRawParameterValue(ParamIDs::compAmount)->load();
@@ -273,28 +261,20 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
 
         // Presets de carácter (Glue/Snap/Squash) inspirados en el comportamiento de
         // Push/Spank/Wall del original, no en su circuito real.
-        float ratio = 2.0f, attackMs = 30.0f, releaseMs = 250.0f;
-        if (mode == 1) { ratio = 4.0f; attackMs = 5.0f;  releaseMs = 80.0f;  } // Snap
-        if (mode == 2) { ratio = 8.0f; attackMs = 1.0f;  releaseMs = 400.0f; } // Squash
+        float ratio = 2.0f, attackMs = 30.0f, releaseMs = 250.0f, kneeDb = 10.0f;
+        if (mode == 1) { ratio = 4.0f; attackMs = 5.0f;  releaseMs = 80.0f;  kneeDb = 3.0f; } // Snap
+        if (mode == 2) { ratio = 8.0f; attackMs = 1.0f;  releaseMs = 400.0f; kneeDb = 6.0f; } // Squash
 
         const float thresholdDb = -(amount / 100.0f) * 24.0f;
         const float makeupDb = (amount / 100.0f) * 6.0f;
 
-        compressor.setThreshold(thresholdDb);
-        compressor.setRatio(ratio);
-        compressor.setAttack(attackMs);
-        compressor.setRelease(releaseMs);
-
-        const float preMag = buffer.getMagnitude(0, numSamples);
-
-        juce::dsp::AudioBlock<float> block(buffer);
-        juce::dsp::ProcessContextReplacing<float> context(block);
-        compressor.process(context);
-        buffer.applyGain(juce::Decibels::decibelsToGain(makeupDb));
-
-        const float postMag = buffer.getMagnitude(0, numSamples);
-        gainReductionDb.store(juce::jmax(0.0f, juce::Decibels::gainToDecibels(preMag)
-                                             - juce::Decibels::gainToDecibels(postMag)));
+        compressor.set(thresholdDb, ratio, kneeDb, attackMs, releaseMs, makeupDb);
+        compressor.process(chL, chR, numSamples);
+        gainReductionDb.store(compressor.getGainReductionDb());
+    }
+    else
+    {
+        gainReductionDb.store(0.0f);
     }
 
     // A partir de acá, `buffer` es el "core" (Low/High/Dynamics aplicados — SIEMPRE
@@ -308,122 +288,71 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         scratchBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
     }
 
-    // --- Space A (reverb 1) ---
+    // --- Space A / Space B: dos reverbs FDN (variantes distintas), siempre corriendo: al
+    // apagarlos o bajar el mix la cola se drena sola (no vuelve audio viejo) ---
+    struct SpacePreset { float size, rt60, hf, er, mod; };
+    auto runSpace = [&](decimu::fx::FdnReverb& reverb, decimu::fx::SmoothDelay& preDelay,
+                        bool enabled, float mix, const SpacePreset& p, float preDelayMs)
     {
-        const bool enabled = apvts.getRawParameterValue(ParamIDs::spaceAEnabled)->load() > 0.5f;
-        const float mix = apvts.getRawParameterValue(ParamIDs::spaceAMix)->load() / 100.0f;
-        if (enabled && mix > 0.0001f)
+        reverb.setPreset(p.size, p.rt60, p.hf, p.er, p.mod, 1.0f);
+        reverb.setActive(enabled && mix > 0.0001f, mix);
+        preDelay.setMs(preDelayMs);
+        for (int ch = 0; ch < numChannels; ++ch)
+            reverbScratch.copyFrom(ch, 0, scratchBuffer, ch, 0, numSamples);
+        float* sl = reverbScratch.getWritePointer(0);
+        float* sr = numChannels > 1 ? reverbScratch.getWritePointer(1) : nullptr;
+        preDelay.process(sl, sr, numSamples);
+        reverb.process(sl, sr, sl, sr != nullptr ? sr : sl, numSamples);
+        for (int ch = 0; ch < numChannels; ++ch)
+            buffer.addFrom(ch, 0, reverbScratch, ch, 0, numSamples);
+    };
+
+    if (numChannels > 1)
+    {
         {
-            const int type = (int) apvts.getRawParameterValue(ParamIDs::spaceAType)->load();
-            juce::dsp::Reverb::Parameters p;
-            // Room / Hall / Cathedral: de más chico/seco a más grande/húmedo.
-            if (type == 0)      { p.roomSize = 0.3f; p.damping = 0.5f; }
-            else if (type == 1) { p.roomSize = 0.6f; p.damping = 0.4f; }
-            else                { p.roomSize = 0.9f; p.damping = 0.2f; }
-            p.width = 1.0f;
-            // Headroom (mismo ajuste que Guitars v0.2): tope 0.85 en vez de 0-1
-            // completo, para no irse a rojo tan fácil con el fader alto.
-            p.wetLevel = mix * 0.85f;
-            p.dryLevel = 0.0f;
-            reverbA.setParameters(p);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-                reverbScratch.copyFrom(ch, 0, scratchBuffer, ch, 0, numSamples);
-
-            juce::dsp::AudioBlock<float> block(reverbScratch);
-            auto subBlock = block.getSubBlock(0, (size_t) numSamples);
-            juce::dsp::ProcessContextReplacing<float> context(subBlock);
-
-            const float preDelayMs = apvts.getRawParameterValue(ParamIDs::spaceAPreDelay)->load();
-            if (preDelayMs > 0.01f)
-            {
-                preDelayA.setDelay(juce::jmin((float) preDelayA.getMaximumDelayInSamples(),
-                                               preDelayMs * 0.001f * (float) currentSampleRate));
-                preDelayA.process(context);
-            }
-            reverbA.process(context);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-                buffer.addFrom(ch, 0, reverbScratch, ch, 0, numSamples);
+            static const SpacePreset kA[3] = { { 0.55f, 0.55f, 0.55f, 0.9f, 0.3f },    // Room
+                                               { 1.0f, 1.7f, 0.45f, 0.45f, 0.6f },     // Hall
+                                               { 1.7f, 4.8f, 0.35f, 0.15f, 0.9f } };   // Cathedral
+            const int type = juce::jlimit(0, 2, (int) apvts.getRawParameterValue(ParamIDs::spaceAType)->load());
+            runSpace(reverbA, preDelayA,
+                     apvts.getRawParameterValue(ParamIDs::spaceAEnabled)->load() > 0.5f,
+                     apvts.getRawParameterValue(ParamIDs::spaceAMix)->load() / 100.0f, kA[type],
+                     apvts.getRawParameterValue(ParamIDs::spaceAPreDelay)->load());
         }
-    }
-
-    // --- Space B (reverb 2) ---
-    {
-        const bool enabled = apvts.getRawParameterValue(ParamIDs::spaceBEnabled)->load() > 0.5f;
-        const float mix = apvts.getRawParameterValue(ParamIDs::spaceBMix)->load() / 100.0f;
-        if (enabled && mix > 0.0001f)
         {
-            const int type = (int) apvts.getRawParameterValue(ParamIDs::spaceBType)->load();
-            juce::dsp::Reverb::Parameters p;
-            // Close / Wide / Vast: de más chico/seco a más grande/húmedo.
-            if (type == 0)      { p.roomSize = 0.2f; p.damping = 0.6f; }
-            else if (type == 1) { p.roomSize = 0.5f; p.damping = 0.4f; }
-            else                { p.roomSize = 0.95f; p.damping = 0.1f; }
-            p.width = 1.0f;
-            p.wetLevel = mix * 0.85f; // headroom, ver Space A
-            p.dryLevel = 0.0f;
-            reverbB.setParameters(p);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-                reverbScratch.copyFrom(ch, 0, scratchBuffer, ch, 0, numSamples);
-
-            juce::dsp::AudioBlock<float> block(reverbScratch);
-            auto subBlock = block.getSubBlock(0, (size_t) numSamples);
-            juce::dsp::ProcessContextReplacing<float> context(subBlock);
-
-            const float preDelayMs = apvts.getRawParameterValue(ParamIDs::spaceBPreDelay)->load();
-            if (preDelayMs > 0.01f)
-            {
-                preDelayB.setDelay(juce::jmin((float) preDelayB.getMaximumDelayInSamples(),
-                                               preDelayMs * 0.001f * (float) currentSampleRate));
-                preDelayB.process(context);
-            }
-            reverbB.process(context);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-                buffer.addFrom(ch, 0, reverbScratch, ch, 0, numSamples);
+            static const SpacePreset kB[3] = { { 0.4f, 0.35f, 0.6f, 1.0f, 0.2f },     // Close
+                                               { 1.3f, 2.4f, 0.5f, 0.3f, 0.7f },      // Wide
+                                               { 2.1f, 6.5f, 0.3f, 0.05f, 1.0f } };   // Vast
+            const int type = juce::jlimit(0, 2, (int) apvts.getRawParameterValue(ParamIDs::spaceBType)->load());
+            runSpace(reverbB, preDelayB,
+                     apvts.getRawParameterValue(ParamIDs::spaceBEnabled)->load() > 0.5f,
+                     apvts.getRawParameterValue(ParamIDs::spaceBMix)->load() / 100.0f, kB[type],
+                     apvts.getRawParameterValue(ParamIDs::spaceBPreDelay)->load());
         }
-    }
 
-    // --- Echo: delay con feedback, tempo-synced ---
-    {
-        const bool enabled = apvts.getRawParameterValue(ParamIDs::echoEnabled)->load() > 0.5f;
-        const float mix = apvts.getRawParameterValue(ParamIDs::echoMix)->load() / 100.0f;
-        if (enabled && mix > 0.0001f)
+        // --- Echo: delay con feedback filtrado, tempo-synced (el cambio de tempo se desliza) ---
         {
+            const bool enabled = apvts.getRawParameterValue(ParamIDs::echoEnabled)->load() > 0.5f;
+            const float mix = apvts.getRawParameterValue(ParamIDs::echoMix)->load() / 100.0f;
             const int division = (int) apvts.getRawParameterValue(ParamIDs::echoDivision)->load();
             const float feedback = apvts.getRawParameterValue(ParamIDs::echoFeedback)->load() / 100.0f;
-            const double bpm = getCurrentBpm();
-            const float delayMs = computeEchoDelayMs(division, bpm);
-            const float delaySamples = juce::jlimit(1.0f, (float) delayLine.getMaximumDelayInSamples(),
-                                                      delayMs * 0.001f * (float) currentSampleRate);
-            delayLine.setDelay(delaySamples);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-            {
-                auto* dry = scratchBuffer.getReadPointer(ch);
-                auto* out = buffer.getWritePointer(ch);
-
-                for (int i = 0; i < numSamples; ++i)
-                {
-                    const float delayed = delayLine.popSample(ch);
-                    delayLine.pushSample(ch, dry[i] + delayed * feedback);
-                    out[i] += delayed * mix;
-                }
-            }
+            echo.set(computeEchoDelayMs(division, getCurrentBpm()), feedback, mix, enabled && mix > 0.0001f);
+            echo.process(scratchBuffer.getReadPointer(0), scratchBuffer.getReadPointer(1),
+                         buffer.getWritePointer(0), buffer.getWritePointer(1), numSamples);
         }
     }
 
-    // --- Blend (dry/wet) ---
+    // --- Blend (dry/wet), suavizado ---
     {
-        const float wetAmount = apvts.getRawParameterValue(ParamIDs::blend)->load() / 100.0f;
-        for (int ch = 0; ch < numChannels; ++ch)
+        blendSmoothed.setTargetValue(apvts.getRawParameterValue(ParamIDs::blend)->load() / 100.0f);
+        for (int i = 0; i < numSamples; ++i)
         {
-            auto* wet = buffer.getWritePointer(ch);
-            auto* dry = dryBuffer.getReadPointer(ch);
-            for (int i = 0; i < numSamples; ++i)
-                wet[i] = dry[i] * (1.0f - wetAmount) + wet[i] * wetAmount;
+            const float wetAmount = blendSmoothed.getNextValue();
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                float* wet = buffer.getWritePointer(ch);
+                wet[i] = dryBuffer.getReadPointer(ch)[i] * (1.0f - wetAmount) + wet[i] * wetAmount;
+            }
         }
     }
 

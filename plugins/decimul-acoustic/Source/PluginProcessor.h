@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
+#include "DecimuFx.h"
 
 // IDs de parámetros, compartidos entre PluginProcessor.cpp y PluginEditor.cpp (evita
 // duplicar los strings a mano en dos archivos, que es receta segura para un typo).
@@ -16,17 +17,14 @@ namespace ParamIDs
     static const juce::String highEnabled        = "highEnabled";
     static const juce::String compAmount         = "compAmount";
     static const juce::String compMode           = "compMode";
-    static const juce::String compOversample     = "compOversample";
     static const juce::String compEnabled        = "compEnabled";
     static const juce::String spaceAMix          = "spaceAMix";
     static const juce::String spaceAType         = "spaceAType";
     static const juce::String spaceAPreDelay     = "spaceAPreDelay";
-    static const juce::String spaceAPreDelaySync = "spaceAPreDelaySync";
     static const juce::String spaceAEnabled      = "spaceAEnabled";
     static const juce::String spaceBMix          = "spaceBMix";
     static const juce::String spaceBType         = "spaceBType";
     static const juce::String spaceBPreDelay     = "spaceBPreDelay";
-    static const juce::String spaceBPreDelaySync = "spaceBPreDelaySync";
     static const juce::String spaceBEnabled      = "spaceBEnabled";
     static const juce::String echoMix            = "echoMix";
     static const juce::String echoDivision       = "echoDivision";
@@ -45,24 +43,13 @@ namespace ParamIDs
     Estado actual ("hito de prueba"): el editor (ver PluginEditor.h/.cpp) es un layout
     mega básico inspirado en el banco de faders del Waves CLA Unplugged (sliders
     verticales + selector de carácter/tipo arriba de cada uno + meters a los costados),
-    con estética propia — no copia su diseño gráfico, colores ni branding. El DSP de
-    este archivo es una implementación de REFERENCIA con clases built-in de juce::dsp
-    (IIR shelving, Compressor,
-    Reverb tipo Freeverb, DelayLine con feedback) — sirve para escuchar y validar que la
-    cadena de señal tiene sentido, pero NO es la calidad final: eso viene después,
-    reemplazando cada etapa por el DSP de Airwindows (ver docs/research/dsp-references.md).
+    con estética propia — no copia su diseño gráfico, colores ni branding.
 
-    Limitaciones conocidas de esta implementación de referencia (a propósito, para no
-    repetir el error de documentar algo que el código no hace):
-    - Los coeficientes de los filtros de Tone y los parámetros de Reverb/Compressor se
-      recalculan una vez por bloque, sin interpolación — mover esos controles rápido
-      durante reproducción puede sonar a "zipper" leve. Input/Output sí están suavizados
-      (juce::dsp::Gain con rampa).
-    - `spaceAPreDelay` / `spaceBPreDelay` (ms libres) ya afectan el audio (delay real
-      antes de cada reverb). Los toggles `...Sync` y `compOversample` siguen sin
-      efecto — quedan para la integración con Airwindows.
-    - El feedback del Echo ahora es un parámetro real (`echoFeedback`, 0-100%, default
-      35% — antes era una constante interna fija).
+    v0.5: el DSP ya no es el "de referencia" de juce::dsp. EQ (shelves suavizados),
+    compresor (ligado entre canales), reverbs (FDN, dos variantes) y echo (con filtro en
+    el lazo) son propios y viven en shared/Source/DecimuFx.h, con tests en
+    tests/EngineTest.cpp (ver "v0.5" en SPEC.md). Se quitaron los 3 parámetros que no
+    hacían nada (Oversample y los dos Sync de pre-delay).
 
     v0.2 (generalizado desde el testing real de DecimuLabs Guitars, ver su SPEC.md):
     - Blend reubicado: Low/High/Dynamics son "core", SIEMPRE 100% activos — el dry tap
@@ -94,7 +81,7 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 4.0; } // reverbs
+    double getTailLengthSeconds() const override { return 7.0; } // reverbs (Vast llega a ~6.5 s)
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -148,19 +135,23 @@ private:
     juce::dsp::Gain<float> inputGain, outputGain;
 
     // --- Tone: shelving de 2 bandas, 3 "carácter" por banda (ver .cpp para las
-    // frecuencias elegidas por modo) ---
-    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> lowFilter, highFilter;
+    // frecuencias elegidas por modo). DSP propio (shared/Source/DecimuFx.h): mismas
+    // fórmulas que juce::dsp::IIR pero con frecuencia/ganancia suavizadas, sin escalones
+    // al mover la perilla y sin crear objetos en el hilo de audio. ---
+    decimu::fx::EqBand lowBand, highBand;
 
-    // --- Dynamics: compresor real, mapeado desde compAmount/compMode ---
-    juce::dsp::Compressor<float> compressor;
+    // --- Dynamics: compresor propio con detector ligado entre canales (v0.5) ---
+    decimu::fx::LinkedCompressor compressor;
 
-    // --- Space A / Space B: reverbs en paralelo (Freeverb vía juce::dsp::Reverb),
-    // cada uno con su propio pre-delay real (delay simple, sin feedback) ---
-    juce::dsp::Reverb reverbA, reverbB;
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> preDelayA { 48000 }, preDelayB { 48000 };
+    // --- Space A / Space B: dos reverbs FDN en paralelo (variantes distintas), cada uno
+    // con su pre-delay suavizado ---
+    decimu::fx::FdnReverb reverbA, reverbB;
+    decimu::fx::SmoothDelay preDelayA, preDelayB;
 
-    // --- Echo: delay con feedback, tempo-synced (host BPM o manualBpm) ---
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 192000 };
+    // --- Echo: delay con feedback filtrado, tempo-synced (host BPM o manualBpm) ---
+    decimu::fx::StereoEcho echo;
+
+    juce::SmoothedValue<float> blendSmoothed;
 
     // Buffers de trabajo (dry tap + acumulador de retornos wet), redimensionados en
     // prepareToPlay. Ver processBlock: dry = señal post Input Trim, pre Tone/Dynamics;

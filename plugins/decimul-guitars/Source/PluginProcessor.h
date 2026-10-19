@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
+#include "DecimuFx.h"
 
 // IDs de parámetros, compartidos entre PluginProcessor.cpp y PluginEditor.cpp.
 namespace ParamIDs
@@ -39,8 +40,8 @@ namespace ParamIDs
     DecimuLabs Guitars — multiefecto para guitarra eléctrica. Hermano de
     DecimuLabs Acoustic (mismo `shared/`), con módulos propios de guitarra en vez de
     los de voz/acústica. Ver SPEC.md para la cadena de señal completa y qué tan
-    "real" es cada etapa del DSP (todo es REFERENCIA con juce::dsp, no la
-    calidad final).
+    "real" es cada etapa del DSP (v0.5: reverb, echo, modulación y filtros son
+    propios, de shared/Source/DecimuFx.h; Drive y Cab siguen siendo simples).
 
     Cadena de señal (revisada tras el primer testing, ver CHANGELOG en SPEC.md):
     Gate→Drive→Tone→Cab son el "core", SIEMPRE 100% activos (no los toca Blend) —
@@ -70,7 +71,7 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 4.0; }
+    double getTailLengthSeconds() const override { return 5.0; } // Space Hall ~3.2 s
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -122,11 +123,12 @@ private:
     // (chattering). Esta versión mantiene el gate abierto un mínimo de tiempo
     // (`gateHoldSamples`) y usa un umbral de cierre más bajo que el de apertura
     // (histéresis de 6dB), como un gate de hardware real.
-    static constexpr int gateMaxChannels = 2;
-    float gateEnvelope[gateMaxChannels] = {};
-    float gateGain[gateMaxChannels] = {};
-    int gateHoldCounter[gateMaxChannels] = {};
-    bool gateIsOpen[gateMaxChannels] = {};
+    // v0.5: el detector del gate es ÚNICO y ligado (el nivel es el mayor de L y R), así los
+    // dos canales abren y cierran juntos y la imagen no se mueve.
+    float gateEnvelope = 0.0f;
+    float gateGain = 0.0f;
+    int gateHoldCounter = 0;
+    bool gateIsOpen = false;
 
     // --- Drive ---
     // Oversampling 4x (dos pasadas half-band) SOLO para pre-gain+waveshaper: con hasta
@@ -136,26 +138,40 @@ private:
     // combinados con Cab (Combo/Stack). Subir y bajar siempre (no solo cuando Drive
     // está activo) mantiene la latencia del plugin constante.
     juce::dsp::Oversampling<float> driveOversampling { 2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true, true };
-    juce::dsp::WaveShaper<float> waveShaper;
+
+    // v0.5: compensación de nivel del Drive CALIBRADA (antes 1/sqrt(preGain), una fórmula a
+    // ojo que dejaba el volumen -18 dB abajo al 100%). Tabla en dB, por modo y por cantidad
+    // (21 puntos de 0 a 100 %): con una senoidal de referencia (-15 dBFS de pico) la salida
+    // tiene el mismo nivel RMS que la entrada. Se calcula al construir.
+    static constexpr int driveTablePoints = 21;
+    float driveMakeupDb[3][driveTablePoints] = {};
+    void computeDriveTable();
+    float driveMakeupFor(int mode, float amount01) const;
+    float drivePreGainPrev = 1.0f, drivePostGainPrev = 1.0f; // rampas entre bloques
 
     // --- Tone: tilt EQ (low-shelf + high-shelf opuestos) + peak fijo para el mid-sweep ---
-    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> toneLowShelf, toneHighShelf, toneMidPeak;
+    // (DSP propio, ver shared/Source/DecimuFx.h: mismas fórmulas que juce::dsp::IIR pero
+    // suavizadas)
+    decimu::fx::EqBand toneLowShelf, toneHighShelf, toneMidPeak;
 
     // --- Cab: EQ fija en cadena, doble pasada por filtro (pendiente más pronunciada,
     // más parecido a la caída real de un speaker) — no es un cab-sim con IR ---
-    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> cabLowCut, cabHighCut, cabPresence;
+    decimu::fx::EqBand cabLowCut[2], cabHighCut[2], cabPresence;
 
-    // --- Modulation: Chorus/Flanger comparten la misma clase con distintos
-    // parámetros; Phaser es la clase dedicada de juce::dsp ---
-    juce::dsp::Chorus<float> chorusFlanger;
-    juce::dsp::Phaser<float> phaser;
+    // --- Modulation: chorus/flanger estéreo propio (el derecho va desfasado) y phaser de
+    // 6 etapas propio ---
+    decimu::fx::ChorusFlanger chorusFlanger;
+    decimu::fx::Phaser phaser;
+    float modMixPrev = 0.0f;
 
-    // --- Space: un solo reverb con pre-delay real (a diferencia de los dos de Acoustic) ---
-    juce::dsp::Reverb space;
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> spacePreDelayLine { 48000 };
+    // --- Space: un solo reverb FDN con pre-delay suavizado (a diferencia de los dos de Acoustic) ---
+    decimu::fx::FdnReverb space;
+    decimu::fx::SmoothDelay spacePreDelay;
 
-    // --- Echo: delay con feedback, tempo-synced — mismo código que Acoustic ---
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> delayLine { 192000 };
+    // --- Echo: delay con feedback filtrado, tempo-synced — mismo código que Acoustic ---
+    decimu::fx::StereoEcho echo;
+
+    juce::SmoothedValue<float> blendSmoothed;
 
     juce::AudioBuffer<float> dryBuffer, scratchBuffer, returnScratch;
 

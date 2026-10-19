@@ -5,15 +5,40 @@ nylon). Inspirado en la estructura del Waves CLA Unplugged (ver
 [docs/research/cla-unplugged-analysis.md](../../docs/research/cla-unplugged-analysis.md)),
 reinterpretado con nombres propios y funciones nuevas.
 
-Estado: **spec cerrada, parámetros 100% cableados, DSP de referencia funcionando, y UI
+Estado: **spec cerrada, parámetros 100% cableados, DSP propio (v0.5) funcionando, y UI
 completa** (chasis de metal cepillado, compartimentos, knobs, faders, selectores tipo
 LED, VU en arco — implementación en JUCE del mockup 3, ver
 [docs/mockups/acoustic-panel-realistic-mockup.html](../../docs/mockups/acoustic-panel-realistic-mockup.html)).
-El DSP sigue siendo una implementación de REFERENCIA con clases built-in de
-`juce::dsp` — no es todavía la calidad final basada en Airwindows, ver limitaciones
-conocidas al inicio de `PluginProcessor.h`. El "look" (LookAndFeel + chrome +
+Desde la v0.5 el DSP ya no es el de "referencia" de `juce::dsp`: reverb, compresor, EQ y
+echo son propios (ver la sección v0.5 más abajo y `shared/Source/DecimuFx.h`). El "look" (LookAndFeel + chrome +
 componentes) vive en [shared/](../../shared), no en este plugin — ver el README de la
 raíz del repo.
+
+## v0.5 — ronda de calidad del DSP (2026-10-18)
+
+Sin cambiar ningún control visible, se reemplazaron los bloques genéricos de `juce::dsp` por DSP propio
+(compartido con Guitars en `shared/Source/DecimuFx.h`, probado con `tests/EngineTest.cpp`):
+
+- **Low / High (EQ)**: mismas fórmulas de shelving que JUCE (el test compara contra los coeficientes
+  de JUCE: mismo color), pero con frecuencia y ganancia **suavizadas** (se recalculan cada 16 muestras,
+  sin escalones al mover la perilla y sin crear objetos en el hilo de audio).
+- **Dynamics**: compresor propio con detector **ligado** entre canales (mismo recorte en L y R, la
+  imagen no se inclina), rodilla suave (Glue 10 dB, Snap 3, Squash 6), medidor de reducción **real**
+  (antes incluía el makeup). Mapeo Amount/Character igual que antes (umbral hasta -24 dB, makeup hasta +6).
+- **Space A / Space B**: reverb de red de retardos realimentados (FDN de 8 líneas, matriz de Householder),
+  difusión de entrada con allpass, retardos modulados (sin sonido metálico), reflexiones tempranas y
+  caída de agudos medida a 5 kHz. Space A y B usan dos variantes distintas (retardos y LFO propios).
+  Medido: RT60 de graves dentro de ~±5 % de lo pedido y a 5 kHz dentro de ~±15 %. Siempre corre: al
+  apagar el módulo o bajar el mix la cola se drena sola (antes podía volver audio viejo al re-prender).
+  Pre-delay con tiempo suavizado.
+- **Echo**: filtro (pasa-altos 140 Hz y pasa-bajos 4.5 kHz) y saturación suave dentro del lazo (las
+  repeticiones se oscurecen y con feedback 100 % nunca explota), tiempo suavizado (un cambio de tempo
+  se desliza en vez de pegar un salto) y vaciado al apagar.
+- **Blend / mezcla de cada módulo**: suavizados.
+- **Input / Output**: arrancan en 0 dB (antes un fade-in de 20 ms al empezar).
+- **Quitados** los 3 parámetros que no hacían nada (`compOversample`, `spaceAPreDelaySync`,
+  `spaceBPreDelaySync`): nunca estuvieron en la UI, solo aparecían en la lista del host.
+- Nivel del retorno de reverb: ~3 dB por debajo del Freeverb anterior en Hall (más aire de headroom).
 
 ## v0.3 — generalizado desde la 2da ronda de testing real de Guitars (2026-10-01)
 
@@ -79,17 +104,14 @@ Space A/Space B/Echo se escucha, nunca cuánto de Low/High/Dynamics.
 | `highEnabled` | — | bool (LED) | on/off | **on** | apaga High entero |
 | `compAmount` | Dynamics | float 0-100% | 0..100 | 0 | |
 | `compMode` | Dynamics Character | choice | Glue / Snap / Squash | Glue | |
-| `compOversample` | Oversample x2/x4 | choice | Off / 2x / 4x | Off | declarado, todavía sin efecto (ver limitaciones en el .h) |
 | `compEnabled` | — | bool (LED) | on/off | **on** | apaga Dynamics entero |
 | `spaceAMix` | Space A | float 0-100% | 0..100 | 0 | |
 | `spaceAType` | Space A Type | choice | Room / Hall / Cathedral | Room | |
 | `spaceAPreDelay` | Space A Pre-Delay | knob, ms | 0-500ms | 0 | delay real antes del reverb |
-| `spaceAPreDelaySync` | Space A Pre-Delay Sync | bool | on/off | off | declarado, todavía sin efecto |
 | `spaceAEnabled` | — | bool (LED) | on/off | **on** | apaga Space A entero |
 | `spaceBMix` | Space B | float 0-100% | 0..100 | 0 | |
 | `spaceBType` | Space B Type | choice | Close / Wide / Vast | Close | |
 | `spaceBPreDelay` | Space B Pre-Delay | knob, ms | 0-500ms | 0 | |
-| `spaceBPreDelaySync` | Space B Pre-Delay Sync | bool | on/off | off | declarado, todavía sin efecto |
 | `spaceBEnabled` | — | bool (LED) | on/off | **on** | apaga Space B entero |
 | `echoMix` | Echo | float 0-100% | 0..100 | 0 | |
 | `echoDivision` | Echo Division | choice | Slap / 8th / Quarter | Slap | tempo-synced |
@@ -130,7 +152,6 @@ plugin.
 
 Otra ronda de testing (ahora con las voces/acústicos que es el target real de este
 plugin) para confirmar que el reordenamiento de Blend y los LEDs se sienten bien acá
-también. A más largo plazo: reemplazar el DSP de referencia por Airwindows (ver
-docs/research/dsp-references.md) para pasar de "suena a compresor/reverb genéricos" a
-la calidad final — la UI no debería necesitar cambios para eso, solo cambia qué hay
-detrás de cada parámetro.
+también. Que Marcelo oiga la v0.5 (reverb, compresor y echo suenan distinto: el reverb ya no es el Freeverb).
+Posibles mejoras de sonido que dependen del oído: saturación/color (Airwindows, MIT, es una opción
+para eso), más tipos de reverb, ping-pong en el echo.

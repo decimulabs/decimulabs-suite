@@ -147,29 +147,35 @@ Tap aunque haya host.
 
 ## DSP: qué es real y qué es "de referencia"
 
-Igual que Acoustic, esto es una implementación de REFERENCIA — suena a compresor/
-drive/reverb genéricos, no es la calidad final (esa viene después con Airwindows u
-otro DSP curado). Detalle por módulo:
+Desde la v0.5 el reverb, el echo, la modulación y los filtros son DSP propio (el mismo de
+Acoustic, `shared/Source/DecimuFx.h`, con tests en `tests/EngineTest.cpp`). Lo que sigue siendo
+aproximado: el Drive (curvas simples) y el Cab (EQ, no impulse responses). Detalle por módulo:
 
 - **Gate**: implementación propia (no `juce::dsp::NoiseGate`, ver v0.2 arriba) —
   envelope follower + histéresis 6dB + hold configurable por `gateMode`.
-- **Drive**: `juce::dsp::WaveShaper` con una curva distinta por `driveMode` (tanh
-  simétrico para Tube, exponencial asimétrico para Fuzz, tanh suave para Boost),
-  hasta +40dB de pre-gain, + makeup gain aproximado (no calibrado por oído). Todo el
+- **Drive**: una curva distinta por `driveMode` (tanh para Tube, exponencial para Fuzz,
+  tanh suave para Boost; **todas simétricas**: antes este texto decía "asimétrico" para Fuzz y el
+  código nunca lo fue — un fuzz asimétrico con bloqueo de continua queda como idea),
+  hasta +40dB de pre-gain. **v0.5**: el nivel de salida está CALIBRADO (tabla de 21 puntos por modo
+  con una senoidal de -15 dBFS de pico: la salida tiene el mismo RMS que la entrada de 10 a 100 %,
+  medido en el test; antes `1/sqrt(pre)` dejaba el volumen unos 18 dB abajo al 100 %) y las
+  ganancias pre/post se rampan entre bloques (sin escalones al mover Drive). Todo el
   pre-gain+shaping corre sobremuestreado 4x (`juce::dsp::Oversampling`, half-band
   polyphase IIR) para evitar aliasing a pre-gain alto — ver v0.4. Agrega latencia
   reportada al plugin (compensada por el host via PDC).
-- **Tone**: tilt EQ (low-shelf + high-shelf opuestos) vía `juce::dsp::IIR` + un peak
-  filter fijo para el mid-sweep.
-- **Cab**: `juce::dsp::IIR` en cadena, doble pasada (4º orden) — **sigue sin ser un
+- **Tone**: tilt EQ (low-shelf + high-shelf opuestos) + un peak filter fijo para el mid-sweep.
+  v0.5: mismas fórmulas que `juce::dsp::IIR` pero con frecuencia/ganancia suavizadas.
+- **Cab**: filtros en cadena (suavizados en v0.5), doble pasada (4º orden) — **sigue sin ser un
   simulador de gabinete real** (eso sería convolución con impulse responses, mucho más
   pesado); es una aproximación con EQ, ahora con pendiente más pronunciada.
-- **Modulation**: `juce::dsp::Chorus` (Chorus/Flanger, cambiando centreDelay/feedback)
-  o `juce::dsp::Phaser` (Phaser) según `modMode`.
-- **Space / Echo**: mismo código que Acoustic (`juce::dsp::Reverb` + pre-delay real;
-  `DelayLine` con feedback tempo-synced), con headroom agregado en Space.
-- Sin smoothing de parámetros salvo Input/Output trim (mismo trade-off documentado que
-  Acoustic — mover controles rápido en reproducción puede sonar a zipper leve).
+- **Modulation** (v0.5, propio): chorus/flanger de retardo modulado con el LFO derecho desfasado un
+  cuarto de ciclo (el de JUCE modulaba igual L y R: con guitarra mono no abría el estéreo) y phaser de
+  6 etapas allpass con L/R desfasados.
+- **Space / Echo** (v0.5, propios): mismo código que Acoustic — reverb FDN (Room / Plate / Hall con
+  tamaños, RT60 y brillo distintos; Plate más angosto y brillante), pre-delay suavizado, echo con filtro y
+  saturación suave en el lazo.
+- **Gate** (v0.5): detector único y ligado (el mayor de L y R), los dos canales abren y cierran juntos.
+- v0.5: suavizado en Tone, Cab, Drive, mezclas de módulos y Blend (sin zipper). Input/Output ya lo tenían.
 
 ## Próximo paso
 

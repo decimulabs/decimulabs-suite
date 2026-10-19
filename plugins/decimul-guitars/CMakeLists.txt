@@ -56,3 +56,19 @@ target_link_libraries(DecimulGuitars PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+
+# Test del motor (opcional): cmake -DDECIMU_GUITARS_TESTS=ON
+option(DECIMU_GUITARS_TESTS "Build the Guitars engine test" OFF)
+if(DECIMU_GUITARS_TESTS)
+    juce_add_console_app(GuitarsEngineTest PRODUCT_NAME "GuitarsEngineTest")
+    target_sources(GuitarsEngineTest PRIVATE tests/EngineTest.cpp)
+    target_compile_options(GuitarsEngineTest PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_compile_definitions(GuitarsEngineTest PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(GuitarsEngineTest PRIVATE
+        DecimulGuitars
+        decimu_shared_ui
+        juce::juce_audio_utils
+        juce::juce_dsp
+        juce::juce_recommended_config_flags)
+endif()

@@ -57,8 +57,8 @@ escribir su propio DSP (`PluginProcessor`) y componer su propio layout de módul
 
 | Plugin | Estado | Carpeta |
 |---|---|---|
-| **DecimuLabs Acoustic** — multiefecto para voz/instrumentos acústicos | 🟢 DSP de referencia + UI completa | [plugins/decimul-acoustic](plugins/decimul-acoustic) |
-| **DecimuLabs Guitars** — multiefecto para guitarra eléctrica (Gate/Drive/Tone/Cab/Modulation/Space/Echo) | 🟢 DSP de referencia + UI completa, tema ámbar | [plugins/decimul-guitars](plugins/decimul-guitars) |
+| **DecimuLabs Acoustic** — multiefecto para voz/instrumentos acústicos | 🟢 DSP propio (v0.5: reverb FDN, compresor ligado, echo filtrado) + UI completa | [plugins/decimul-acoustic](plugins/decimul-acoustic) |
+| **DecimuLabs Guitars** — multiefecto para guitarra eléctrica (Gate/Drive/Tone/Cab/Modulation/Space/Echo) | 🟢 DSP propio en reverb/echo/modulación/EQ (v0.5; Drive y Cab simples) + UI completa, tema ámbar | [plugins/decimul-guitars](plugins/decimul-guitars) |
 | **DecimuLabs Versus (AB)** — comparador A/B de mezclas y masterings contra referencias, con volumen igualado por LUFS | 🟢 MVP funcionando + test de motor, tema violeta | [plugins/decimul-versus](plugins/decimul-versus) |
 | **DecimuLabs Gap** — bombeo de volumen sincronizado (sidechain "de mentira") con curva dibujable, trigger MIDI/audio y banda baja | 🟢 MVP funcionando + test de motor, tema lima | [plugins/decimul-gap](plugins/decimul-gap) |
 | **DecimuLabs Trigger** (nombre de trabajo) — trigger de batería: detecta golpes y su intensidad, sale MIDI con velocity y reproductor propio con capas y round-robin | 🟢 v0.5 funcionando (calibrar, polaridad/desfase/ganancia/afinación por muestra, MIDI de entrada y exportación a .mid, además de la huella contra bleed y la captura de muestras) + test de motor, tema coral | [plugins/decimul-trigger](plugins/decimul-trigger) |

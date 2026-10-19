@@ -13,6 +13,7 @@ DecimulGuitarsProcessor::DecimulGuitarsProcessor()
                           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    computeDriveTable();
 }
 
 DecimulGuitarsProcessor::~DecimulGuitarsProcessor() = default;
@@ -104,6 +105,48 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulGuitarsProcessor::cre
     return { params.begin(), params.end() };
 }
 
+namespace
+{
+    // Curvas del Drive (iguales a las de siempre; ahora sin std::function).
+    inline float shapeSample(int mode, float x)
+    {
+        if (mode == 0) return std::tanh(x);                                         // Tube
+        if (mode == 1) return x >= 0.0f ? 1.0f - std::exp(-x) : -1.0f + std::exp(x); // Fuzz
+        return std::tanh(x * 0.35f);                                                // Boost
+    }
+}
+
+void DecimulGuitarsProcessor::computeDriveTable()
+{
+    constexpr int cycle = 512;
+    constexpr float refPeak = 0.178f; // -15 dBFS de pico: nivel típico de guitarra
+    const double inRms = refPeak / std::sqrt(2.0);
+    for (int mode = 0; mode < 3; ++mode)
+        for (int k = 0; k < driveTablePoints; ++k)
+        {
+            const float amount = (float) k / (float) (driveTablePoints - 1);
+            const float pre = juce::Decibels::decibelsToGain(amount * 40.0f);
+            double sum = 0.0;
+            for (int n = 0; n < cycle; ++n)
+            {
+                const float x = refPeak * std::sin(juce::MathConstants<float>::twoPi * (float) n / (float) cycle);
+                const double y = shapeSample(mode, x * pre);
+                sum += y * y;
+            }
+            const double outRms = std::sqrt(sum / cycle);
+            driveMakeupDb[mode][k] = (float) (20.0 * std::log10(inRms / std::max(outRms, 1.0e-9)));
+        }
+}
+
+float DecimulGuitarsProcessor::driveMakeupFor(int mode, float amount01) const
+{
+    const float pos = juce::jlimit(0.0f, 1.0f, amount01) * (float) (driveTablePoints - 1);
+    const int i = juce::jmin((int) pos, driveTablePoints - 2);
+    const float f = pos - (float) i;
+    const int m = juce::jlimit(0, 2, mode);
+    return driveMakeupDb[m][i] + (driveMakeupDb[m][i + 1] - driveMakeupDb[m][i]) * f;
+}
+
 void DecimulGuitarsProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
@@ -117,38 +160,39 @@ void DecimulGuitarsProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     outputGain.prepare(spec);
     inputGain.setRampDurationSeconds(0.02);
     outputGain.setRampDurationSeconds(0.02);
+    // juce::dsp::Gain arranca en 0: sin esto el audio entraba con un fade-in de 20 ms.
+    inputGain.setGainLinear(1.0f);
+    outputGain.setGainLinear(1.0f);
+    inputGain.reset();
+    outputGain.reset();
 
-    for (int ch = 0; ch < gateMaxChannels; ++ch)
-    {
-        gateEnvelope[ch] = 0.0f;
-        gateGain[ch] = 0.0f;
-        gateHoldCounter[ch] = 0;
-        gateIsOpen[ch] = false;
-    }
-    waveShaper.prepare(spec);
+    gateEnvelope = 0.0f;
+    gateGain = 0.0f;
+    gateHoldCounter = 0;
+    gateIsOpen = false;
+    drivePreGainPrev = 1.0f;
+    drivePostGainPrev = 1.0f;
     driveOversampling.initProcessing((size_t) samplesPerBlock);
     driveOversampling.reset();
     setLatencySamples((int) std::ceil(driveOversampling.getLatencyInSamples()));
 
-    toneLowShelf.prepare(spec);
-    toneHighShelf.prepare(spec);
-    toneMidPeak.prepare(spec);
-    cabLowCut.prepare(spec);
-    cabHighCut.prepare(spec);
-    cabPresence.prepare(spec);
+    using Band = decimu::fx::EqBand;
+    toneLowShelf.prepare(sampleRate, Band::Type::lowShelf);
+    toneHighShelf.prepare(sampleRate, Band::Type::highShelf);
+    toneMidPeak.prepare(sampleRate, Band::Type::peak, 1.0f);
+    for (auto& f : cabLowCut) f.prepare(sampleRate, Band::Type::highpass);
+    for (auto& f : cabHighCut) f.prepare(sampleRate, Band::Type::lowpass);
+    cabPresence.prepare(sampleRate, Band::Type::peak, 1.0f);
 
-    chorusFlanger.prepare(spec);
-    phaser.prepare(spec);
-    space.prepare(spec);
-    space.reset();
+    chorusFlanger.prepare(sampleRate);
+    phaser.prepare(sampleRate);
+    modMixPrev = 0.0f;
+    space.prepare(sampleRate, 0);
+    spacePreDelay.prepare(sampleRate, 0.6);
+    echo.prepare(sampleRate);
 
-    spacePreDelayLine.setMaximumDelayInSamples((int) (0.6 * sampleRate));
-    spacePreDelayLine.prepare(spec);
-    spacePreDelayLine.reset();
-
-    delayLine.setMaximumDelayInSamples((int) (2.0 * sampleRate));
-    delayLine.prepare(spec);
-    delayLine.reset();
+    blendSmoothed.reset(sampleRate, 0.02);
+    blendSmoothed.setCurrentAndTargetValue(apvts.getRawParameterValue(ParamIDs::blend)->load() / 100.0f);
 
     dryBuffer.setSize((int) spec.numChannels, samplesPerBlock);
     scratchBuffer.setSize((int) spec.numChannels, samplesPerBlock);
@@ -232,7 +276,7 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     }
     inputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
 
-    // --- Gate: hysteresis + hold propios (ver nota en el .h) ---
+    // --- Gate: hysteresis + hold propios (ver nota en el .h). v0.5: detector ligado (L y R) ---
     {
         const float amount = apvts.getRawParameterValue(ParamIDs::gateAmount)->load() / 100.0f;
         const int mode = (int) apvts.getRawParameterValue(ParamIDs::gateMode)->load();
@@ -252,37 +296,37 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
         const float preMag = buffer.getMagnitude(0, numSamples);
 
-        for (int ch = 0; ch < numChannels && ch < gateMaxChannels; ++ch)
+        for (int i = 0; i < numSamples; ++i)
         {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < numSamples; ++i)
+            float level = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                level = juce::jmax(level, std::abs(buffer.getReadPointer(ch)[i]));
+
+            const float envCoeff = level > gateEnvelope ? envAttackCoeff : envReleaseCoeff;
+            gateEnvelope += envCoeff * (level - gateEnvelope);
+            const float envelopeDb = juce::Decibels::gainToDecibels(gateEnvelope, -100.0f);
+
+            if (!gateIsOpen && envelopeDb > openThresholdDb)
             {
-                const float level = std::abs(data[i]);
-                const float envCoeff = level > gateEnvelope[ch] ? envAttackCoeff : envReleaseCoeff;
-                gateEnvelope[ch] += envCoeff * (level - gateEnvelope[ch]);
-                const float envelopeDb = juce::Decibels::gainToDecibels(gateEnvelope[ch], -100.0f);
-
-                if (!gateIsOpen[ch] && envelopeDb > openThresholdDb)
-                {
-                    gateIsOpen[ch] = true;
-                    gateHoldCounter[ch] = holdSamples;
-                }
-                else if (gateIsOpen[ch])
-                {
-                    if (envelopeDb > closeThresholdDb)
-                        gateHoldCounter[ch] = holdSamples;
-                    else if (gateHoldCounter[ch] > 0)
-                        --gateHoldCounter[ch];
-                    else
-                        gateIsOpen[ch] = false;
-                }
-
-                const float targetGain = gateIsOpen[ch] ? 1.0f : 0.0f;
-                const float gainCoeff = targetGain > gateGain[ch] ? gainAttackCoeff : gainReleaseCoeff;
-                gateGain[ch] += gainCoeff * (targetGain - gateGain[ch]);
-
-                data[i] *= gateGain[ch];
+                gateIsOpen = true;
+                gateHoldCounter = holdSamples;
             }
+            else if (gateIsOpen)
+            {
+                if (envelopeDb > closeThresholdDb)
+                    gateHoldCounter = holdSamples;
+                else if (gateHoldCounter > 0)
+                    --gateHoldCounter;
+                else
+                    gateIsOpen = false;
+            }
+
+            const float targetGain = gateIsOpen ? 1.0f : 0.0f;
+            const float gainCoeff = targetGain > gateGain ? gainAttackCoeff : gainReleaseCoeff;
+            gateGain += gainCoeff * (targetGain - gateGain);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                buffer.getWritePointer(ch)[i] *= gateGain;
         }
 
         const float postMag = buffer.getMagnitude(0, numSamples);
@@ -292,7 +336,8 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
     // --- Drive: pre-gain+waveshaper SIEMPRE pasan por oversampling 4x (ver nota en el
     // .h) para que el pre-gain alto de Tube/Fuzz no aliasee. Sube/baja siempre (no solo
-    // con Drive activo) para que la latencia del plugin sea constante. ---
+    // con Drive activo) para que la latencia del plugin sea constante. v0.5: la ganancia
+    // pre/post se rampa entre bloques (sin escalones) y el nivel está calibrado. ---
     {
         juce::dsp::AudioBlock<float> block(buffer);
         auto oversampledBlock = driveOversampling.processSamplesUp(block);
@@ -301,41 +346,40 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         const float amount = apvts.getRawParameterValue(ParamIDs::driveAmount)->load() / 100.0f;
         if (enabled && amount > 0.001f)
         {
-            const int mode = (int) apvts.getRawParameterValue(ParamIDs::driveMode)->load();
-            // Rango subido de +23dB a +40dB tope: con niveles típicos de guitarra
-            // (bien por debajo de 0dBFS), +23dB no alcanzaba para que Fuzz fuzzeara
-            // de verdad (feedback de testing).
-            const float preGainDb = amount * 40.0f;
-            const float preGain = juce::Decibels::decibelsToGain(preGainDb);
-            const float postGain = 1.0f / std::sqrt(preGain);
+            const int mode = juce::jlimit(0, 2, (int) apvts.getRawParameterValue(ParamIDs::driveMode)->load());
+            // Rango hasta +40dB de pre-gain (feedback de testing: con +23dB Fuzz no fuzzeaba).
+            const float preGain = juce::Decibels::decibelsToGain(amount * 40.0f);
+            const float postGain = juce::Decibels::decibelsToGain(driveMakeupFor(mode, amount));
 
-            if (mode == 0)      waveShaper.functionToUse = [](float x) { return std::tanh(x); };
-            else if (mode == 1) waveShaper.functionToUse = [](float x)
-                                 { return x >= 0.0f ? 1.0f - std::exp(-x) : -1.0f + std::exp(x); };
-            else                waveShaper.functionToUse = [](float x) { return std::tanh(x * 0.35f); };
-
+            const size_t osSamples = oversampledBlock.getNumSamples();
+            const float invN = 1.0f / (float) osSamples;
             for (size_t ch = 0; ch < oversampledBlock.getNumChannels(); ++ch)
             {
                 auto* data = oversampledBlock.getChannelPointer(ch);
-                for (size_t i = 0; i < oversampledBlock.getNumSamples(); ++i)
-                    data[i] *= preGain;
+                for (size_t i = 0; i < osSamples; ++i)
+                {
+                    const float t = (float) i * invN;
+                    const float pre = drivePreGainPrev + (preGain - drivePreGainPrev) * t;
+                    const float post = drivePostGainPrev + (postGain - drivePostGainPrev) * t;
+                    data[i] = shapeSample(mode, data[i] * pre) * post;
+                }
             }
-
-            juce::dsp::ProcessContextReplacing<float> osContext(oversampledBlock);
-            waveShaper.process(osContext);
-
-            for (size_t ch = 0; ch < oversampledBlock.getNumChannels(); ++ch)
-            {
-                auto* data = oversampledBlock.getChannelPointer(ch);
-                for (size_t i = 0; i < oversampledBlock.getNumSamples(); ++i)
-                    data[i] *= postGain;
-            }
+            drivePreGainPrev = preGain;
+            drivePostGainPrev = postGain;
+        }
+        else
+        {
+            drivePreGainPrev = 1.0f;
+            drivePostGainPrev = 1.0f;
         }
 
         driveOversampling.processSamplesDown(block);
     }
 
-    // --- Tone: tilt EQ + mid-sweep peak fijo ---
+    float* chL = buffer.getWritePointer(0);
+    float* chR = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
+
+    // --- Tone: tilt EQ + mid-sweep peak fijo (frecuencias y ganancias suavizadas) ---
     if (apvts.getRawParameterValue(ParamIDs::toneEnabled)->load() > 0.5f)
     {
         const float tiltDb = apvts.getRawParameterValue(ParamIDs::toneTilt)->load();
@@ -344,18 +388,13 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         const float highFreq = mode == 0 ? 3000.0f : (mode == 1 ? 2000.0f : 1500.0f);
         const float midFreq = apvts.getRawParameterValue(ParamIDs::toneMidFreq)->load();
 
-        *toneLowShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(
-            currentSampleRate, lowFreq, 0.7071f, juce::Decibels::decibelsToGain(-tiltDb * 0.5f));
-        *toneHighShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(
-            currentSampleRate, highFreq, 0.7071f, juce::Decibels::decibelsToGain(tiltDb * 0.5f));
-        *toneMidPeak.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(
-            currentSampleRate, midFreq, 1.0f, juce::Decibels::decibelsToGain(4.0f));
+        toneLowShelf.set(lowFreq, -tiltDb * 0.5f);
+        toneHighShelf.set(highFreq, tiltDb * 0.5f);
+        toneMidPeak.set(midFreq, 4.0f);
 
-        juce::dsp::AudioBlock<float> block(buffer);
-        juce::dsp::ProcessContextReplacing<float> context(block);
-        toneLowShelf.process(context);
-        toneHighShelf.process(context);
-        toneMidPeak.process(context);
+        toneLowShelf.process(chL, chR, numSamples);
+        toneHighShelf.process(chL, chR, numSamples);
+        toneMidPeak.process(chL, chR, numSamples);
     }
 
     // --- Cab: on/off, 100% wet cuando está prendido (nunca blend parcial — no tiene
@@ -374,18 +413,10 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
             const float presenceFreq = mode == 0 ? 3000.0f : 2500.0f;
             const float presenceGainDb = mode == 0 ? 2.0f : 3.0f;
 
-            *cabLowCut.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate, lowCutFreq);
-            *cabHighCut.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate, highCutFreq);
-            *cabPresence.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(
-                currentSampleRate, presenceFreq, 1.0f, juce::Decibels::decibelsToGain(presenceGainDb));
-
-            juce::dsp::AudioBlock<float> block(buffer);
-            juce::dsp::ProcessContextReplacing<float> context(block);
-            cabLowCut.process(context);
-            cabLowCut.process(context);   // doble pasada: 4º orden
-            cabHighCut.process(context);
-            cabHighCut.process(context);  // doble pasada: 4º orden
-            cabPresence.process(context);
+            for (auto& f : cabLowCut)  { f.set(lowCutFreq, 0.0f);  f.process(chL, chR, numSamples); }  // doble pasada: 4º orden
+            for (auto& f : cabHighCut) { f.set(highCutFreq, 0.0f); f.process(chL, chR, numSamples); }
+            cabPresence.set(presenceFreq, presenceGainDb);
+            cabPresence.process(chL, chR, numSamples);
         }
     }
 
@@ -399,129 +430,91 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         scratchBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
     }
 
-    // --- Space (un solo reverb, con pre-delay real) ---
+    if (numChannels > 1)
     {
-        const bool enabled = apvts.getRawParameterValue(ParamIDs::spaceEnabled)->load() > 0.5f;
-        const float mix = apvts.getRawParameterValue(ParamIDs::spaceAmount)->load() / 100.0f;
-        if (enabled && mix > 0.0001f)
+        // --- Space (un solo reverb FDN, con pre-delay real). Siempre corre: al apagarlo o
+        // bajar el mix la cola se drena sola (no vuelve audio viejo). ---
         {
-            const int type = (int) apvts.getRawParameterValue(ParamIDs::spaceMode)->load();
-            juce::dsp::Reverb::Parameters p;
-            if (type == 0)      { p.roomSize = 0.35f; p.damping = 0.5f; } // Room
-            else if (type == 1) { p.roomSize = 0.5f;  p.damping = 0.25f; p.width = 0.6f; } // Plate (más angosto)
-            else                { p.roomSize = 0.85f; p.damping = 0.3f; } // Hall
-            if (type != 1) p.width = 1.0f;
-            // Headroom: con Hall + fader alto, el reverb sumaba tanta energía que el
-            // Output se iba a rojo con facilidad (feedback de testing). Se limita el
-            // wetLevel efectivo a un tope de 0.85 en vez de 0-1 completo.
-            p.wetLevel = mix * 0.85f;
-            p.dryLevel = 0.0f;
-            space.setParameters(p);
+            struct SpacePreset { float size, rt60, hf, er, mod, width; };
+            static const SpacePreset kSpace[3] = { { 0.5f, 0.5f, 0.55f, 0.9f, 0.3f, 1.0f },   // Room
+                                                   { 0.85f, 1.6f, 0.8f, 0.0f, 0.5f, 0.6f },   // Plate (brillante, más angosto)
+                                                   { 1.5f, 3.2f, 0.4f, 0.3f, 0.8f, 1.0f } };  // Hall
+            const bool enabled = apvts.getRawParameterValue(ParamIDs::spaceEnabled)->load() > 0.5f;
+            const float mix = apvts.getRawParameterValue(ParamIDs::spaceAmount)->load() / 100.0f;
+            const auto& p = kSpace[juce::jlimit(0, 2, (int) apvts.getRawParameterValue(ParamIDs::spaceMode)->load())];
+
+            space.setPreset(p.size, p.rt60, p.hf, p.er, p.mod, p.width);
+            space.setActive(enabled && mix > 0.0001f, mix);
+            spacePreDelay.setMs(apvts.getRawParameterValue(ParamIDs::spacePreDelay)->load());
 
             for (int ch = 0; ch < numChannels; ++ch)
                 returnScratch.copyFrom(ch, 0, scratchBuffer, ch, 0, numSamples);
-
-            juce::dsp::AudioBlock<float> block(returnScratch);
-            auto subBlock = block.getSubBlock(0, (size_t) numSamples);
-            juce::dsp::ProcessContextReplacing<float> context(subBlock);
-
-            const float preDelayMs = apvts.getRawParameterValue(ParamIDs::spacePreDelay)->load();
-            if (preDelayMs > 0.01f)
-            {
-                spacePreDelayLine.setDelay(juce::jmin((float) spacePreDelayLine.getMaximumDelayInSamples(),
-                                                       preDelayMs * 0.001f * (float) currentSampleRate));
-                spacePreDelayLine.process(context);
-            }
-            space.process(context);
-
+            float* sl = returnScratch.getWritePointer(0);
+            float* sr = returnScratch.getWritePointer(1);
+            spacePreDelay.process(sl, sr, numSamples);
+            space.process(sl, sr, sl, sr, numSamples);
             for (int ch = 0; ch < numChannels; ++ch)
                 buffer.addFrom(ch, 0, returnScratch, ch, 0, numSamples);
         }
-    }
 
-    // --- Modulation: Chorus/Flanger (misma clase, distintos parámetros) o Phaser ---
-    {
-        const bool enabled = apvts.getRawParameterValue(ParamIDs::modEnabled)->load() > 0.5f;
-        const float mix = apvts.getRawParameterValue(ParamIDs::modAmount)->load() / 100.0f;
-        if (enabled && mix > 0.0001f)
+        // --- Modulation: chorus/flanger estéreo propio o phaser propio ---
         {
+            const bool enabled = apvts.getRawParameterValue(ParamIDs::modEnabled)->load() > 0.5f;
+            const float mix = enabled ? apvts.getRawParameterValue(ParamIDs::modAmount)->load() / 100.0f : 0.0f;
             const int mode = (int) apvts.getRawParameterValue(ParamIDs::modMode)->load();
             const float rateHz = apvts.getRawParameterValue(ParamIDs::modRate)->load();
 
-            for (int ch = 0; ch < numChannels; ++ch)
-                returnScratch.copyFrom(ch, 0, scratchBuffer, ch, 0, numSamples);
-
-            juce::dsp::AudioBlock<float> block(returnScratch);
-            auto subBlock = block.getSubBlock(0, (size_t) numSamples);
-            juce::dsp::ProcessContextReplacing<float> context(subBlock);
-
-            if (mode == 2)
+            if (mix > 0.0001f || modMixPrev > 0.0001f)
             {
-                // Depth/feedback subidos de nuevo (antes 0.95/0.6) y centerFrequency
-                // subida de 700 a 1200Hz: en la segunda ronda de testing seguía sin
-                // notarse sobre la guitarra (sí sobre el ruido de fondo) — a 700Hz las
-                // muescas del phaser barrían por debajo de donde vive la mayoría de la
-                // energía armónica de una guitarra, así que casi no mordían señal real.
-                // Sigue siendo el Phaser de referencia de juce::dsp (cantidad de etapas
-                // fija, no configurable) — límite conocido, ver SPEC.md.
-                phaser.setRate(rateHz);
-                phaser.setDepth(1.0f);
-                phaser.setCentreFrequency(1200.0f);
-                phaser.setFeedback(0.75f);
-                phaser.setMix(1.0f);
-                phaser.process(context);
-            }
-            else
-            {
-                chorusFlanger.setRate(rateHz);
-                if (mode == 0) { chorusFlanger.setCentreDelay(7.5f); chorusFlanger.setFeedback(0.0f); chorusFlanger.setDepth(0.25f); }
-                else           { chorusFlanger.setCentreDelay(2.0f); chorusFlanger.setFeedback(0.5f); chorusFlanger.setDepth(0.4f); }
-                chorusFlanger.setMix(1.0f);
-                chorusFlanger.process(context);
-            }
+                float* wl = returnScratch.getWritePointer(0);
+                float* wr = returnScratch.getWritePointer(1);
+                const float* il = scratchBuffer.getReadPointer(0);
+                const float* ir = scratchBuffer.getReadPointer(1);
 
-            for (int ch = 0; ch < numChannels; ++ch)
-                buffer.addFrom(ch, 0, returnScratch, ch, 0, numSamples, mix);
+                if (mode == 2)
+                {
+                    // Phaser propio de 6 etapas, centro 1200 Hz y feedback 0.75 (mismos valores de
+                    // la v0.4, que ya se había subido para que se note sobre la guitarra).
+                    phaser.setRate(rateHz);
+                    phaser.setShape(1200.0f, 0.75f);
+                    phaser.process(il, ir, wl, wr, numSamples);
+                }
+                else
+                {
+                    chorusFlanger.setMode(mode == 1);
+                    chorusFlanger.setRate(rateHz);
+                    chorusFlanger.process(il, ir, wl, wr, numSamples);
+                }
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    buffer.addFromWithRamp(ch, 0, returnScratch.getReadPointer(ch), numSamples, modMixPrev, mix);
+            }
+            modMixPrev = mix;
         }
-    }
 
-    // --- Echo: delay con feedback, tempo-synced — mismo código que Acoustic ---
-    {
-        const bool enabled = apvts.getRawParameterValue(ParamIDs::echoEnabled)->load() > 0.5f;
-        const float mix = apvts.getRawParameterValue(ParamIDs::echoAmount)->load() / 100.0f;
-        if (enabled && mix > 0.0001f)
+        // --- Echo: delay con feedback filtrado, tempo-synced — mismo código que Acoustic ---
         {
+            const bool enabled = apvts.getRawParameterValue(ParamIDs::echoEnabled)->load() > 0.5f;
+            const float mix = apvts.getRawParameterValue(ParamIDs::echoAmount)->load() / 100.0f;
             const int division = (int) apvts.getRawParameterValue(ParamIDs::echoDivision)->load();
             const float feedback = apvts.getRawParameterValue(ParamIDs::echoFeedback)->load() / 100.0f;
-            const double bpm = getCurrentBpm();
-            const float delayMs = computeEchoDelayMs(division, bpm);
-            const float delaySamples = juce::jlimit(1.0f, (float) delayLine.getMaximumDelayInSamples(),
-                                                      delayMs * 0.001f * (float) currentSampleRate);
-            delayLine.setDelay(delaySamples);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-            {
-                auto* dry = scratchBuffer.getReadPointer(ch);
-                auto* out = buffer.getWritePointer(ch);
-                for (int i = 0; i < numSamples; ++i)
-                {
-                    const float delayed = delayLine.popSample(ch);
-                    delayLine.pushSample(ch, dry[i] + delayed * feedback);
-                    out[i] += delayed * mix;
-                }
-            }
+            echo.set(computeEchoDelayMs(division, getCurrentBpm()), feedback, mix, enabled && mix > 0.0001f);
+            echo.process(scratchBuffer.getReadPointer(0), scratchBuffer.getReadPointer(1),
+                         buffer.getWritePointer(0), buffer.getWritePointer(1), numSamples);
         }
     }
 
-    // --- Blend (dry/wet) ---
+    // --- Blend (dry/wet), suavizado ---
     {
-        const float wetAmount = apvts.getRawParameterValue(ParamIDs::blend)->load() / 100.0f;
-        for (int ch = 0; ch < numChannels; ++ch)
+        blendSmoothed.setTargetValue(apvts.getRawParameterValue(ParamIDs::blend)->load() / 100.0f);
+        for (int i = 0; i < numSamples; ++i)
         {
-            auto* wet = buffer.getWritePointer(ch);
-            auto* dry = dryBuffer.getReadPointer(ch);
-            for (int i = 0; i < numSamples; ++i)
-                wet[i] = dry[i] * (1.0f - wetAmount) + wet[i] * wetAmount;
+            const float wetAmount = blendSmoothed.getNextValue();
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                float* wet = buffer.getWritePointer(ch);
+                wet[i] = dryBuffer.getReadPointer(ch)[i] * (1.0f - wetAmount) + wet[i] * wetAmount;
+            }
         }
     }
 
