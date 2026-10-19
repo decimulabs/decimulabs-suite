@@ -136,6 +136,15 @@ public:
         apply(items.back());
     }
 
+    /** Con literales "..." JUCE leería los bytes UTF-8 como Latin-1 y las tildes saldrían rotas
+        ("Ã¡"): este overload los decodifica como UTF-8. */
+    template <typename T>
+    void add(T& component, const char* english, const char* spanish = "")
+    {
+        add(component, juce::String(juce::CharPointer_UTF8(english)),
+            juce::String(juce::CharPointer_UTF8(spanish)));
+    }
+
     DecimuLang::Lang getLanguage() const { return language; }
 
     void setLanguage(DecimuLang::Lang newLanguage)
