@@ -757,4 +757,90 @@ private:
     Smooth rateS;
 };
 
+//==============================================================================
+/** Limiter de pico con anticipación de 1 ms (latencia = latencySamples()), ligado entre
+    canales: ninguna muestra de salida pasa del techo. La ganancia necesaria se toma como el
+    mínimo de la ventana de anticipación, se le aplica un release de un polo (80 ms) y se
+    suaviza con un promedio de la misma longitud, así baja antes de que llegue el pico. */
+class Limiter
+{
+public:
+    void prepare(double sampleRate)
+    {
+        n = std::max(8, (int) std::ceil(0.001 * sampleRate));
+        len = n + 1;
+        for (auto& d : delay) d.assign((size_t) len, 0.0f);
+        req.assign((size_t) len, 1.0f);
+        box.assign((size_t) len, 1.0f);
+        relCoef = (float) std::exp(-1.0 / (0.08 * sampleRate));
+        reset();
+    }
+
+    void reset()
+    {
+        for (auto& d : delay) std::fill(d.begin(), d.end(), 0.0f);
+        std::fill(req.begin(), req.end(), 1.0f);
+        std::fill(box.begin(), box.end(), 1.0f);
+        boxSum = (double) len;
+        pos = 0;
+        grel = 1.0f;
+        meter = 0.0f;
+    }
+
+    int latencySamples() const { return n; }
+    void setThresholdDb(float db) { ceiling = dbToGain(std::min(db, 24.0f)); }
+
+    /** Solo retrasa el audio (para mantener la latencia informada cuando el plugin está en bypass). */
+    void setPassThrough(bool shouldPass) { passThrough = shouldPass; }
+
+    /** `r` puede ser nullptr (mono). */
+    void process(float* l, float* r, int numSamples)
+    {
+        float worst = 1.0f;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float peak = std::abs(l[i]);
+            if (r != nullptr)
+                peak = std::max(peak, std::abs(r[i]));
+            const float g = (!passThrough && peak > ceiling) ? ceiling / peak : 1.0f;
+
+            req[(size_t) pos] = g;
+            float gmin = 1.0f;
+            for (float v : req)
+                gmin = std::min(gmin, v);
+
+            grel = gmin < grel ? gmin : grel + (gmin - grel) * (1.0f - relCoef);
+
+            boxSum += (double) grel - (double) box[(size_t) pos];
+            box[(size_t) pos] = grel;
+            const float gain = (float) (boxSum / (double) len);
+            worst = std::min(worst, gain);
+
+            // el audio sale con n muestras de retraso: se escribe la actual y se lee la de n pasos atrás
+            const size_t readPos = (size_t) (pos + 1 >= len ? 0 : pos + 1);
+            delay[0][(size_t) pos] = l[i];
+            l[i] = delay[0][readPos] * gain;
+            if (r != nullptr)
+            {
+                delay[1][(size_t) pos] = r[i];
+                r[i] = delay[1][readPos] * gain;
+            }
+            if (++pos >= len)
+                pos = 0;
+        }
+        meter = -gainToDb(worst);
+    }
+
+    /** Reducción máxima del último bloque, en dB positivos. */
+    float getGainReductionDb() const { return meter; }
+
+private:
+    int n = 48, len = 49, pos = 0;
+    float ceiling = 1.0f, relCoef = 0.999f, grel = 1.0f, meter = 0.0f;
+    bool passThrough = false;
+    double boxSum = 49.0;
+    std::array<std::vector<float>, 2> delay;
+    std::vector<float> req, box;
+};
+
 } // namespace decimu::fx

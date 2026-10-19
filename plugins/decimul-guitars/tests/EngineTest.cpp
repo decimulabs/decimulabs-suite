@@ -94,9 +94,30 @@ namespace
     }
 }
 
-int main()
+int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+
+    // Con  guarda una captura de la UI (DECIMU_SHOT_SIZE=1700x1000 estira la ventana).
+    if (argc >= 3 && juce::String(argv[1]) == "--screenshot")
+    {
+        auto p = makeProcessor();
+        setParam(*p, ParamIDs::limThreshold, -9.0f);
+        auto l = whiteNoise((int) (sr * 0.3), 0.2f, 3);
+        auto r = l;
+        runStereo(*p, l, r);
+        std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
+        if (const auto shotSize = juce::SystemStats::getEnvironmentVariable("DECIMU_SHOT_SIZE", {}); shotSize.contains("x"))
+            editor->setSize(shotSize.upToFirstOccurrenceOf("x", false, false).getIntValue(),
+                            shotSize.fromFirstOccurrenceOf("x", false, false).getIntValue());
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(500);
+        const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);
+        const juce::File out(argv[2]);
+        out.deleteFile();
+        juce::PNGImageFormat png;
+        juce::FileOutputStream stream(out);
+        return (stream.openedOk() && png.writeImageToStream(image, stream)) ? 0 : 1;
+    }
 
     // ---- Drive calibrado: misma sonoridad (RMS) que la entrada con una guitarra típica ----
     {
@@ -248,7 +269,20 @@ int main()
     {
         // Latencia informada = la del oversampling del Drive, constante.
         auto p = makeProcessor();
-        check(p->getLatencySamples() > 0 && p->getLatencySamples() < 100, "Guitars: latencia informada por el oversampling del Drive", juce::String(p->getLatencySamples()) + " muestras");
+        check(p->getLatencySamples() > 48 && p->getLatencySamples() < 120, "Guitars: latencia informada = oversampling del Drive + 1 ms del limiter", juce::String(p->getLatencySamples()) + " muestras");
+    }
+    {
+        // Limiter dentro del plugin: Drive al 100 % + salida +12 dB, techo en -6 dB.
+        auto p = makeProcessor();
+        setParam(*p, ParamIDs::driveAmount, 100.0f);
+        setParam(*p, ParamIDs::outputTrim, 12.0f);
+        setParam(*p, ParamIDs::limThreshold, -6.0f);
+        auto l = whiteNoise((int) (sr * 3), 0.5f, 91);
+        auto r = whiteNoise((int) (sr * 3), 0.5f, 92);
+        runStereo(*p, l, r);
+        float peak = 0.0f;
+        for (size_t i = 0; i < l.size(); ++i) peak = std::max({ peak, std::abs(l[i]), std::abs(r[i]) });
+        check(peak <= juce::Decibels::decibelsToGain(-6.0f) * 1.0005f && peak > 0.3f, "Guitars: el limiter de salida frena todo en el techo (-6 dB)", juce::String(dbOf(peak), 2) + " dBFS");
     }
 
     std::cout << (failures == 0 ? "\nTODO OK" : "\nHAY FALLAS: ") << (failures == 0 ? "" : std::to_string(failures).c_str()) << std::endl;

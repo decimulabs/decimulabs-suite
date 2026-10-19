@@ -99,6 +99,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulGuitarsProcessor::cre
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::outputTrim), "Output", dbRange(-60.0f, 24.0f), 0.0f, dbAttr));
 
+    // Limiter de salida: techo en dB (0 = nunca pasa de 0 dBFS). Una sola perilla.
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::limThreshold), "Limiter", dbRange(-24.0f, 0.0f), 0.0f, dbAttr));
+
     params.push_back(std::make_unique<AudioParameterBool>(
         pid(ParamIDs::bypass), "Bypass", false));
 
@@ -174,7 +178,8 @@ void DecimulGuitarsProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
     drivePostGainPrev = 1.0f;
     driveOversampling.initProcessing((size_t) samplesPerBlock);
     driveOversampling.reset();
-    setLatencySamples((int) std::ceil(driveOversampling.getLatencyInSamples()));
+    limiter.prepare(sampleRate);
+    setLatencySamples((int) std::ceil(driveOversampling.getLatencyInSamples()) + limiter.latencySamples());
 
     using Band = decimu::fx::EqBand;
     toneLowShelf.prepare(sampleRate, Band::Type::lowShelf);
@@ -257,8 +262,12 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     {
         inputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
         outputPeakDb.store(inputPeakDb.load());
+        // en bypass el audio igual se retrasa lo que informa el plugin (alineado con las otras pistas)
+        limiter.setPassThrough(true);
+        limiter.process(buffer.getWritePointer(0), numChannels > 1 ? buffer.getWritePointer(1) : nullptr, numSamples);
         return;
     }
+    limiter.setPassThrough(false);
 
     if (dryBuffer.getNumSamples() < numSamples || dryBuffer.getNumChannels() != numChannels)
     {
@@ -525,6 +534,10 @@ void DecimulGuitarsProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         outputGain.setGainDecibels(apvts.getRawParameterValue(ParamIDs::outputTrim)->load());
         outputGain.process(context);
     }
+
+    // --- Limiter de salida (última etapa) ---
+    limiter.setThresholdDb(apvts.getRawParameterValue(ParamIDs::limThreshold)->load());
+    limiter.process(buffer.getWritePointer(0), numChannels > 1 ? buffer.getWritePointer(1) : nullptr, numSamples);
 
     outputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
 }

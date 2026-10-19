@@ -103,6 +103,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulAcousticProcessor::cr
     params.push_back(std::make_unique<AudioParameterFloat>(
         pid(ParamIDs::outputTrim), "Output", dbRange(-60.0f, 24.0f), 0.0f, dbAttr));
 
+    // Limiter de salida: techo en dB (0 = nunca pasa de 0 dBFS). Una sola perilla.
+    params.push_back(std::make_unique<AudioParameterFloat>(
+        pid(ParamIDs::limThreshold), "Limiter", dbRange(-24.0f, 0.0f), 0.0f, dbAttr));
+
     params.push_back(std::make_unique<AudioParameterBool>(
         pid(ParamIDs::bypass), "Bypass", false));
 
@@ -139,6 +143,9 @@ void DecimulAcousticProcessor::prepareToPlay(double sampleRate, int samplesPerBl
     preDelayB.prepare(sampleRate, 0.6);
 
     echo.prepare(sampleRate);
+
+    limiter.prepare(sampleRate);
+    setLatencySamples(limiter.latencySamples());
 
     blendSmoothed.reset(sampleRate, 0.02);
     blendSmoothed.setCurrentAndTargetValue(apvts.getRawParameterValue(ParamIDs::blend)->load() / 100.0f);
@@ -210,8 +217,12 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
     {
         inputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
         outputPeakDb.store(inputPeakDb.load());
+        // en bypass el audio igual se retrasa lo que informa el plugin (alineado con las otras pistas)
+        limiter.setPassThrough(true);
+        limiter.process(buffer.getWritePointer(0), numChannels > 1 ? buffer.getWritePointer(1) : nullptr, numSamples);
         return;
     }
+    limiter.setPassThrough(false);
 
     // Buffers de trabajo pueden necesitar resize si el host cambia el tamaño de bloque
     // en caliente (poco común, pero pasa en algunos hosts al hacer bounce/freeze).
@@ -363,6 +374,10 @@ void DecimulAcousticProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
         outputGain.setGainDecibels(apvts.getRawParameterValue(ParamIDs::outputTrim)->load());
         outputGain.process(context);
     }
+
+    // --- Limiter de salida (última etapa) ---
+    limiter.setThresholdDb(apvts.getRawParameterValue(ParamIDs::limThreshold)->load());
+    limiter.process(buffer.getWritePointer(0), numChannels > 1 ? buffer.getWritePointer(1) : nullptr, numSamples);
 
     outputPeakDb.store(juce::Decibels::gainToDecibels(buffer.getMagnitude(0, numSamples)));
 

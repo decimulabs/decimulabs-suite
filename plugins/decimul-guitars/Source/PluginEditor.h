@@ -75,11 +75,16 @@ private:
     // por encima del host. No es parámetro APVTS (gesto de UI, como manualBpm).
     juce::ToggleButton hostSyncButton { "SYNC" };
 
+    // Limiter de salida: una perilla rotativa de Threshold arriba del fader Output.
+    juce::Slider limitKnob;
+    juce::Label limitLabel;
+
     DecimuLadderMeter inputMeter, outputMeter;
     DecimuVuArc vuArc;
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> limitAttach;
 
     std::unique_ptr<SliderAttachment> inputAttach, gateAttach, driveAttach, toneAttach,
                                        modAttach, spaceAttach, echoAttach, blendAttach, outputAttach,

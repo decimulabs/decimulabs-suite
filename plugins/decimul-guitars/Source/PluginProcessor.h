@@ -33,6 +33,7 @@ namespace ParamIDs
     static const juce::String echoEnabled   = "echoEnabled";
     static const juce::String blend         = "blend";
     static const juce::String outputTrim    = "outputTrim";
+    static const juce::String limThreshold    = "limThreshold";
     static const juce::String bypass        = "bypass";
 }
 
@@ -172,6 +173,10 @@ private:
     decimu::fx::StereoEcho echo;
 
     juce::SmoothedValue<float> blendSmoothed;
+
+    // Limiter de salida (v0.6): última etapa, después de Output; una sola perilla (Threshold).
+    // Tiene 1 ms de anticipación (latencia informada al host).
+    decimu::fx::Limiter limiter;
 
     juce::AudioBuffer<float> dryBuffer, scratchBuffer, returnScratch;
 

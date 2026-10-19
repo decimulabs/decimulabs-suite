@@ -56,6 +56,7 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     setupKnob(spaceAPreDelayKnob);
     setupKnob(spaceBPreDelayKnob);
     setupKnob(echoFeedbackKnob);
+    setupKnob(limitKnob);
 
     auto setupKnobLabel = [this](juce::Label& l, const juce::String& text)
     {
@@ -68,6 +69,7 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     setupKnobLabel(spaceAKnobLabel, "PRE-DELAY");
     setupKnobLabel(spaceBKnobLabel, "PRE-DELAY");
     setupKnobLabel(echoKnobLabel, "FEEDBACK");
+    setupKnobLabel(limitLabel, "LIMIT");
 
     setupSelector(lowModeSel, { "Warm", "Deep", "Air-Cut" }, ParamIDs::lowMode);
     setupSelector(highModeSel, { "Silk", "Sheen", "Crisp" }, ParamIDs::highMode);
@@ -125,6 +127,7 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     outputAttach  = std::make_unique<SliderAttachment>(apvts, ParamIDs::outputTrim, outputSlider);
     spaceAPreDelayAttach = std::make_unique<SliderAttachment>(apvts, ParamIDs::spaceAPreDelay, spaceAPreDelayKnob);
     spaceBPreDelayAttach = std::make_unique<SliderAttachment>(apvts, ParamIDs::spaceBPreDelay, spaceBPreDelayKnob);
+    limitAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, ParamIDs::limThreshold, limitKnob);
     echoFeedbackAttach   = std::make_unique<SliderAttachment>(apvts, ParamIDs::echoFeedback, echoFeedbackKnob);
 
     bypassAttach        = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
@@ -188,6 +191,8 @@ DecimulAcousticEditor::DecimulAcousticEditor(DecimulAcousticProcessor& p)
     tips.add(blendSlider, "Blend (dry/wet): how much of Space A, Space B and Echo you hear. Low, High and Dynamics are never diluted.",
              "Blend (dry/wet): cuánto se escucha de Space A, Space B y Echo. Low, High y Dynamics nunca se diluyen.");
     tips.add(outputSlider, "Output trim, -60 to +24 dB.", "Ganancia de salida, -60 a +24 dB.");
+    tips.add(limitKnob, "Limiter threshold, -24 to 0 dB: nothing leaves the plugin louder than this. At 0 dB it only stops peaks above full scale. Adds 1 ms of latency.",
+             "Umbral del limiter, -24 a 0 dB: nada sale del plugin más fuerte que esto. En 0 dB solo frena los picos que pasan del máximo. Suma 1 ms de latencia.");
     tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).",
              "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
     tips.add(tapTempoButton, "Tap the tempo here. Used when the host gives no tempo (or SYNC is off).",
@@ -365,6 +370,9 @@ void DecimulAcousticEditor::resized()
     // --- Output ---
     {
         auto col = outputCompRect.reduced(8);
+        auto limitArea = col.removeFromTop(70);
+        limitKnob.setBounds(limitArea.removeFromTop(52).withSizeKeepingCentre(46, 46));
+        limitLabel.setBounds(limitArea.removeFromTop(14));
         auto labelArea = col.removeFromBottom(20);
         outputLabel.setBounds(labelArea);
         auto meterArea = col.removeFromLeft(16);

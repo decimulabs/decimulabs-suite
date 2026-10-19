@@ -268,6 +268,28 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
 
+
+    // Con  guarda una captura de la UI (DECIMU_SHOT_SIZE=1700x1000 estira la ventana).
+    if (argc >= 3 && juce::String(argv[1]) == "--screenshot")
+    {
+        auto p = makeProcessor();
+        setParam(*p, ParamIDs::limThreshold, -9.0f);
+        auto l = whiteNoise((int) (sr * 0.3), 0.2f, 3);
+        auto r = l;
+        runStereo(*p, l, r);
+        std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
+        if (const auto shotSize = juce::SystemStats::getEnvironmentVariable("DECIMU_SHOT_SIZE", {}); shotSize.contains("x"))
+            editor->setSize(shotSize.upToFirstOccurrenceOf("x", false, false).getIntValue(),
+                            shotSize.fromFirstOccurrenceOf("x", false, false).getIntValue());
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(500);
+        const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);
+        const juce::File out(argv[2]);
+        out.deleteFile();
+        juce::PNGImageFormat png;
+        juce::FileOutputStream stream(out);
+        return (stream.openedOk() && png.writeImageToStream(image, stream)) ? 0 : 1;
+    }
+
     if (argc >= 3 && juce::String(argv[1]) == "--demo")
     {
         runDemos(juce::File(argv[2]));
@@ -633,6 +655,73 @@ int main(int argc, char** argv)
         check(diff > 1.0, "Phaser: dry + wet es distinto de la seca (se forman las muescas)");
     }
 
+    // ------------------------------------------------------------------ Limiter
+    {
+        Limiter lim;
+        lim.prepare(sr);
+        const int n = lim.latencySamples();
+        // 1) por debajo del techo pasa intacto, solo retrasado
+        lim.setThresholdDb(-6.0f);
+        auto quiet = whiteNoise(48000, 0.3f, 71);
+        auto qr = quiet;
+        auto q0 = quiet;
+        lim.process(quiet.data(), qr.data(), (int) quiet.size());
+        double d = 0.0;
+        for (size_t i = (size_t) n; i < quiet.size(); ++i) d = std::max(d, (double) std::abs(quiet[i] - q0[i - (size_t) n]));
+        check(d < 1.0e-6, "Limiter: bajo el techo el audio pasa idéntico (solo retrasado " + juce::String(n) + " muestras)", juce::String(d, 8));
+
+        // 2) una senoidal a +6 dBFS no pasa del techo de -6 dB
+        Limiter l2;
+        l2.prepare(sr);
+        l2.setThresholdDb(-6.0f);
+        auto loud = sine((int) sr, 440.0, 2.0f);
+        auto lr = loud;
+        l2.process(loud.data(), lr.data(), (int) loud.size());
+        float peak = 0.0f;
+        for (float v : loud) peak = std::max(peak, std::abs(v));
+        const float ceilLin = juce::Decibels::decibelsToGain(-6.0f);
+        check(peak <= ceilLin * 1.0005f && peak > ceilLin * 0.95f, "Limiter: seno a +6 dBFS queda justo en el techo de -6 dB", juce::String(dbOf(peak), 3) + " dBFS");
+
+        // 3) un golpe fuerte de golpe (sin aviso) tampoco pasa, ni en la primera muestra
+        Limiter l3;
+        l3.prepare(sr);
+        l3.setThresholdDb(-12.0f);
+        std::vector<float> burst(48000, 0.0f);
+        for (size_t i = 24000; i < 24100; ++i) burst[i] = 1.0f;
+        auto br = burst;
+        l3.process(burst.data(), br.data(), (int) burst.size());
+        float bp = 0.0f;
+        for (float v : burst) bp = std::max(bp, std::abs(v));
+        check(bp <= juce::Decibels::decibelsToGain(-12.0f) * 1.0005f, "Limiter: un pico de golpe (1.0 a -12 dB de techo) no se escapa", juce::String(dbOf(bp), 3) + " dBFS");
+
+        // 4) la ganancia vuelve (release) y el canal suave baja igual que el fuerte (ligado)
+        Limiter l4;
+        l4.prepare(sr);
+        l4.setThresholdDb(-12.0f);
+        std::vector<float> a((size_t) sr, 0.0f), b((size_t) sr, 0.0f);
+        for (size_t i = 0; i < 4800; ++i) a[i] = 1.0f * (float) std::sin(2.0 * decimu::fx::kPi * 200.0 * (double) i / sr);
+        for (size_t i = 0; i < b.size(); ++i) b[i] = 0.05f * (float) std::sin(2.0 * decimu::fx::kPi * 900.0 * (double) i / sr);
+        const auto b0 = b;
+        l4.process(a.data(), b.data(), (int) a.size());
+        const double gainDuring = rmsOf(std::vector<float>(b.begin() + 2400, b.begin() + 4400)) / rmsOf(std::vector<float>(b0.begin() + 2400 - n, b0.begin() + 4400 - n));
+        const double gainAfter = rmsOf(std::vector<float>(b.begin() + 40000, b.end())) / rmsOf(std::vector<float>(b0.begin() + 40000 - n, b0.end() - n));
+        check(gainDuring < 0.3 && gainAfter > 0.98, "Limiter ligado: el canal suave baja con el fuerte y la ganancia vuelve (release)",
+              "durante " + juce::String(gainDuring, 2) + ", después " + juce::String(gainAfter, 3));
+
+        // 5) pasa-through: solo retrasa
+        Limiter l5;
+        l5.prepare(sr);
+        l5.setThresholdDb(-24.0f);
+        l5.setPassThrough(true);
+        auto t = whiteNoise(4800, 0.9f, 75);
+        auto tr = t;
+        const auto t0 = t;
+        l5.process(t.data(), tr.data(), (int) t.size());
+        double dd = 0.0;
+        for (size_t i = (size_t) n; i < t.size(); ++i) dd = std::max(dd, (double) std::abs(t[i] - t0[i - (size_t) n]));
+        check(dd == 0.0, "Limiter en pass-through (bypass): solo retrasa, sin tocar el audio");
+    }
+
     // ------------------------------------------------------------------ Procesador de Acoustic
     {
         auto p = makeProcessor();
@@ -647,8 +736,9 @@ int main(int argc, char** argv)
         const auto l0 = l, r0 = r;
         runStereo(*p, l, r);
         double worst = 0.0;
-        for (size_t i = 0; i < l.size(); ++i) worst = std::max(worst, (double) std::abs(l[i] - l0[i]));
-        check(worst < 1.0e-4, "Acoustic: con todo en cero es transparente desde la primera muestra", juce::String(worst, 7));
+        const size_t lat = (size_t) p->getLatencySamples();
+        for (size_t i = lat; i < l.size(); ++i) worst = std::max(worst, (double) std::abs(l[i] - l0[i - lat]));
+        check(worst < 1.0e-4 && lat > 0 && lat < 100, "Acoustic: con todo en cero es transparente (solo retrasa lo que informa el limiter)", juce::String(worst, 7) + ", latencia " + juce::String((int) lat) + " muestras");
     }
     {
         // Compresor ligado dentro del plugin.
@@ -678,6 +768,18 @@ int main(int argc, char** argv)
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         check(allFinite(l, 10.0f) && allFinite(r, 10.0f), "Acoustic: dos reverbs largos + echo + EQ + compresor, sin NaN ni explosión");
         check(10.0 / secs > 15.0, "Acoustic: rendimiento", juce::String(10.0 / secs, 1) + "x tiempo real");
+    }
+    {
+        // Limiter dentro del plugin: con +12 dB de salida y techo en -12 dB, ningún pico lo pasa.
+        auto p = makeProcessor();
+        setParam(*p, ParamIDs::outputTrim, 12.0f);
+        setParam(*p, ParamIDs::limThreshold, -12.0f);
+        auto l = whiteNoise((int) (sr * 3), 0.8f, 81);
+        auto r = whiteNoise((int) (sr * 3), 0.8f, 82);
+        runStereo(*p, l, r);
+        float peak = 0.0f;
+        for (size_t i = 0; i < l.size(); ++i) peak = std::max({ peak, std::abs(l[i]), std::abs(r[i]) });
+        check(peak <= juce::Decibels::decibelsToGain(-12.0f) * 1.0005f && peak > 0.2f, "Acoustic: el limiter de salida frena todo en el techo (-12 dB)", juce::String(dbOf(peak), 2) + " dBFS");
     }
     {
         // Mover Space A de 0 a 100 % y bajarlo: sin saltos fuertes (mix suavizado).

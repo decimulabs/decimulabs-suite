@@ -62,6 +62,7 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     setupKnob(modRateKnob);
     setupKnob(spacePreDelayKnob);
     setupKnob(echoFeedbackKnob);
+    setupKnob(limitKnob);
 
     auto setupKnobLabel = [this](juce::Label& l, const juce::String& text)
     {
@@ -75,6 +76,7 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     setupKnobLabel(modKnobLabel, "RATE");
     setupKnobLabel(spaceKnobLabel, "PRE-DELAY");
     setupKnobLabel(echoKnobLabel, "FEEDBACK");
+    setupKnobLabel(limitLabel, "LIMIT");
 
     setupSelector(gateModeSel, { "Fast", "Med", "Slow" }, ParamIDs::gateMode);
     setupSelector(driveModeSel, { "Tube", "Fuzz", "Boost" }, ParamIDs::driveMode);
@@ -136,6 +138,7 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     toneMidAttach        = std::make_unique<SliderAttachment>(apvts, ParamIDs::toneMidFreq, toneMidKnob);
     modRateAttach        = std::make_unique<SliderAttachment>(apvts, ParamIDs::modRate, modRateKnob);
     spacePreDelayAttach  = std::make_unique<SliderAttachment>(apvts, ParamIDs::spacePreDelay, spacePreDelayKnob);
+    limitAttach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, ParamIDs::limThreshold, limitKnob);
     echoFeedbackAttach   = std::make_unique<SliderAttachment>(apvts, ParamIDs::echoFeedback, echoFeedbackKnob);
 
     bypassAttach       = std::make_unique<ButtonAttachment>(apvts, ParamIDs::bypass, bypassButton);
@@ -203,6 +206,8 @@ DecimulGuitarsEditor::DecimulGuitarsEditor(DecimulGuitarsProcessor& p)
     tips.add(blendSlider, "Blend (dry/wet): how much of Space, Mod and Echo you hear. Gate, Drive, Tone and Cab are never diluted.",
              "Blend (dry/wet): cuánto se escucha de Space, Mod y Echo. Gate, Drive, Tone y Cab nunca se diluyen.");
     tips.add(outputSlider, "Output trim, -60 to +24 dB.", "Ganancia de salida, -60 a +24 dB.");
+    tips.add(limitKnob, "Limiter threshold, -24 to 0 dB: nothing leaves the plugin louder than this. At 0 dB it only stops peaks above full scale. Adds 1 ms of latency.",
+             "Umbral del limiter, -24 a 0 dB: nada sale del plugin más fuerte que esto. En 0 dB solo frena los picos que pasan del máximo. Suma 1 ms de latencia.");
     tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).",
              "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
     tips.add(tapTempoButton, "Tap the tempo here. Used when the host gives no tempo (or SYNC is off).",
@@ -402,6 +407,9 @@ void DecimulGuitarsEditor::resized()
 
     {
         auto col = outputCompRect.reduced(8);
+        auto limitArea = col.removeFromTop(70);
+        limitKnob.setBounds(limitArea.removeFromTop(52).withSizeKeepingCentre(46, 46));
+        limitLabel.setBounds(limitArea.removeFromTop(14));
         auto labelArea = col.removeFromBottom(20);
         outputLabel.setBounds(labelArea);
         auto meterArea = col.removeFromLeft(16);

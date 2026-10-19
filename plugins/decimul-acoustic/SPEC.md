@@ -14,6 +14,16 @@ echo son propios (ver la sección v0.5 más abajo y `shared/Source/DecimuFx.h`).
 componentes) vive en [shared/](../../shared), no en este plugin — ver el README de la
 raíz del repo.
 
+## v0.6 — limiter de salida (2026-10-18)
+
+Una sola perilla rotativa nueva, **LIMIT** (parámetro `limThreshold`, -24 a 0 dB, default 0), arriba del fader
+Output. Es la **última etapa** (después de Blend y de Output): ningún pico de salida pasa de ese techo. Limiter
+de pico con 1 ms de anticipación y ligado entre canales (el canal suave baja igual que el fuerte), release de
+80 ms, definido en `shared/Source/DecimuFx.h` (`Limiter`). Medido en el test: un seno a +6 dBFS queda justo en
+el techo, un pico de golpe no se escapa, bajo el techo el audio pasa idéntico y la ganancia vuelve.
+**Latencia:** 48 muestras a 48 kHz (1 ms), informada al host. En bypass el audio igual se retrasa lo mismo (queda alineado con el resto del proyecto).
+Con el techo en 0 dB (default) solo frena lo que pase de 0 dBFS.
+
 ## v0.5 — ronda de calidad del DSP (2026-10-18)
 
 Sin cambiar ningún control visible, se reemplazaron los bloques genéricos de `juce::dsp` por DSP propio
@@ -119,6 +129,7 @@ Space A/Space B/Echo se escucha, nunca cuánto de Low/High/Dynamics.
 | `echoEnabled` | — | bool (LED) | on/off | **on** | apaga Echo entero |
 | `blend` | Blend (Dry/Wet) | float % | 0..100 | 100 | solo mezcla Space A+Space B+Echo, ver arriba |
 | `outputTrim` | Output | float dB | -60..+24 | 0 | |
+| `limThreshold` | Limiter (LIMIT) | float dB | -24..0 | 0 | limiter de salida, última etapa (v0.6) |
 | `bypass` | Bypass general | bool | — | off | se dibuja como el indicador "REC" |
 
 Meters (no automatizables, solo lectura para la UI): input peak, output peak, gain

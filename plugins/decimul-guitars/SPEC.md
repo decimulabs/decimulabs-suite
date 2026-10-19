@@ -134,6 +134,7 @@ de Space/Mod/Echo se escucha, nunca cuánto de Drive/Tone.
 | `echoEnabled` | — | bool (LED) | on/off | **on** | apaga Echo entero |
 | `blend` | Blend | float % | 0..100 | 100 | solo mezcla Space+Mod+Echo, ver arriba |
 | `outputTrim` | Output | float dB | -60..+24 | 0 | |
+| `limThreshold` | Limiter (LIMIT) | float dB | -24..0 | 0 | limiter de salida, última etapa (v0.6) |
 | `bypass` | Bypass | bool | — | off | se dibuja como el indicador "REC" |
 
 **Tap Tempo** (`tapTempo()` + `manualBpm`) y **BPM manual por texto** (`setManualBpm()`
@@ -144,6 +145,16 @@ también UI no-APVTS, ver v0.4 arriba) deja apagar esa prioridad para forzar el 
 Tap aunque haya host.
 
 **Buses**: acepta mono→estéreo (DI/mic de amp) y estéreo→estéreo, igual que Acoustic.
+
+## v0.6 — limiter de salida (2026-10-18)
+
+Una sola perilla rotativa nueva, **LIMIT** (parámetro `limThreshold`, -24 a 0 dB, default 0), arriba del fader
+Output. Es la **última etapa** (después de Blend y de Output): ningún pico de salida pasa de ese techo. Limiter
+de pico con 1 ms de anticipación y ligado entre canales (el canal suave baja igual que el fuerte), release de
+80 ms, definido en `shared/Source/DecimuFx.h` (`Limiter`). Medido en el test: un seno a +6 dBFS queda justo en
+el techo, un pico de golpe no se escapa, bajo el techo el audio pasa idéntico y la ganancia vuelve.
+**Latencia:** 1 ms del limiter + la del oversampling del Drive (54 muestras a 48 kHz), informada al host. En bypass el audio igual se retrasa lo mismo (queda alineado con el resto del proyecto).
+Con el techo en 0 dB (default) solo frena lo que pase de 0 dBFS.
 
 ## DSP: qué es real y qué es "de referencia"
 
