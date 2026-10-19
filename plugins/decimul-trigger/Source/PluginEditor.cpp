@@ -280,6 +280,22 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
     captureStatus.setJustificationType(juce::Justification::topLeft);
     addAndMakeVisible(captureStatus);
 
+    // ---- Modo común / avanzado ----
+    modePill.setClickingTogglesState(false);
+    modePill.onClick = [this] { setAdvanced(!advanced); };
+    addAndMakeVisible(modePill);
+
+    warnPill.setClickingTogglesState(false);
+    warnPill.setToggleState(true, juce::dontSendNotification);
+    warnPill.onClick = [this] { setAdvanced(true); };
+    addChildComponent(warnPill);
+
+    warnLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
+    warnLabel.setColour(juce::Label::textColourId, DecimuColours::accentPrimary);
+    warnLabel.setJustificationType(juce::Justification::centredLeft);
+    warnLabel.setMinimumHorizontalScale(0.8f);
+    addChildComponent(warnLabel);
+
     // ---- Muestras ----
     for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)
     {
@@ -460,14 +476,155 @@ DecimulTriggerEditor::DecimulTriggerEditor(DecimulTriggerProcessor& p)
                  "Afinación de esta muestra en semitonos, de -12 a +12 (doble click para escribirla).");
     }
 
+    tips.add(modePill, "Switch between the common mode (only the essentials) and the advanced mode (every control: filters, velocity, fingerprint, capture and all 8 samples). Hidden settings keep working.",
+             "Cambia entre el modo común (solo lo esencial) y el avanzado (todos los controles: filtros, velocity, huella, captura y las 8 muestras). Lo que queda oculto sigue funcionando.");
+    tips.add(warnPill, "Opens the advanced mode, where those settings can be seen and changed.",
+             "Abre el modo avanzado, donde esos ajustes se ven y se pueden cambiar.");
     tips.add(outputSlider, "Output trim, -24 to +12 dB.", "Ganancia de salida, -24 a +12 dB.");
     tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).",
              "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
 
-    setSize(1180, 880);
+    // Lo que solo se ve en el modo avanzado (las muestras 1 y 2 y todo lo demás del modo común quedan siempre).
+    for (auto* k : { &scanKnob, &lowCutKnob, &highCutKnob, &onsetKnob, &minVelKnob, &maxVelKnob, &curveKnob, &channelKnob,
+                     &noteLenKnob, &velSensKnob, &offsetKnob, &matchKnob, &fpWindowKnob, &capLengthKnob, &capLayersKnob,
+                     &capRRKnob })
+    {
+        advancedOnly.push_back(&k->slider);
+        advancedOnly.push_back(&k->label);
+    }
+    for (auto* c : std::initializer_list<juce::Component*> {
+             &velocityLabel, &printLabel, &captureLabel, &fixedVelPill, &listenPill, &alignPill, &chokePill, &rejectPill,
+             &polarityPill, &midiInPill, &learnPill, &clearPrintPill, &fingerprintView, &printStatus, &makePill,
+             &clearTakesPill, &openFolderPill, &captureName, &captureNameLabel })
+        advancedOnly.push_back(c);
+    for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)
+    {
+        if (i >= 2)
+            advancedOnly.push_back(slotButtons[(size_t) i].get());
+        for (auto* l : { &loLabels[(size_t) i], &hiLabels[(size_t) i], &gainLabels[(size_t) i], &tuneLabels[(size_t) i] })
+            advancedOnly.push_back(l);
+    }
+
+    advanced = processorRef.uiAdvanced.load();
     setResizable(true, true);
-    setResizeLimits(1100, 840, 1800, 1200);
+    applyMode();
     startTimerHz(30);
+}
+
+// ------------------------------ Modo común / avanzado ------------------------------
+
+void DecimulTriggerEditor::setAdvanced(bool shouldBeAdvanced)
+{
+    if (advanced == shouldBeAdvanced)
+        return;
+    advanced = shouldBeAdvanced;
+    processorRef.uiAdvanced.store(advanced);
+    applyMode();
+}
+
+void DecimulTriggerEditor::applyMode()
+{
+    for (auto* c : advancedOnly)
+        c->setVisible(advanced);
+
+    modePill.setButtonText(advanced ? "MODO COMUN" : "AVANZADO");
+    modePill.setToggleState(advanced, juce::dontSendNotification);
+    if (advanced)
+    {
+        warnLabel.setVisible(false);
+        warnPill.setVisible(false);
+        setResizeLimits(1100, 840, 1800, 1200);
+        setSize(1180, 880);
+    }
+    else
+    {
+        setResizeLimits(900, 660, 1500, 1000);
+        setSize(980, 720);
+    }
+    resized();
+    repaint();
+}
+
+// Ajustes del modo avanzado que están fuera de su valor normal (siguen afectando el sonido).
+void DecimulTriggerEditor::updateHiddenWarning()
+{
+    juce::StringArray names;
+    auto& apvts = processorRef.apvts;
+    struct Item { const juce::String* id; const char* name; };
+    const Item items[] = {
+        { &ParamIDs::listen, "Oir deteccion" },   { &ParamIDs::lowCut, "Low Cut" },       { &ParamIDs::highCut, "High Cut" },
+        { &ParamIDs::scan, "Scan" },              { &ParamIDs::onset, "Ataque" },         { &ParamIDs::minVel, "Vel Min" },
+        { &ParamIDs::maxVel, "Vel Max" },         { &ParamIDs::curve, "Curva" },          { &ParamIDs::fixedVel, "Velocity fija" },
+        { &ParamIDs::channel, "Canal" },          { &ParamIDs::noteLen, "Largo nota" },   { &ParamIDs::fingerprint, "Rechazar bleed" },
+        { &ParamIDs::velSens, "Vel>Vol" },        { &ParamIDs::sampleOffset, "Desfase" }, { &ParamIDs::polarity, "Invertir fase" },
+        { &ParamIDs::midiIn, "MIDI IN" },         { &ParamIDs::align, "Alinear original" }, { &ParamIDs::choke, "Cortar anterior" } };
+    for (const auto& item : items)
+        if (auto* p = apvts.getParameter(*item.id))
+            if (std::abs(p->getValue() - p->getDefaultValue()) > 0.001f)
+                names.add(item.name);
+
+    int extraSamples = 0;
+    bool slotTweaks = false;
+    for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)
+    {
+        const auto info = processorRef.getSlotInfo(i);
+        if (i >= 2 && (info.loaded || info.loading))
+            ++extraSamples;
+        if (i < 2 && (std::abs(processorRef.getSlotGain(i)) > 0.04f || std::abs(processorRef.getSlotTune(i)) > 0.04f))
+            slotTweaks = true;
+    }
+    if (extraSamples > 0)
+        names.add(juce::String(extraSamples) + (extraSamples == 1 ? " muestra mas (3 a 8)" : " muestras mas (3 a 8)"));
+    if (slotTweaks)
+        names.add("Gain / afinacion de muestras");
+
+    const int count = names.size();
+    const bool show = !advanced && count > 0;
+    warnLabel.setText("AVANZADO ACTIVO (" + juce::String(count) + "): " + names.joinIntoString(", "), juce::dontSendNotification);
+    warnLabel.setVisible(show);
+    warnPill.setVisible(show);
+    if (count != hiddenCount)
+    {
+        const bool layoutChanges = (count > 0) != (hiddenCount > 0);
+        hiddenCount = count;
+        if (layoutChanges)
+        {
+            resized();
+            repaint();
+        }
+    }
+}
+
+// En modo común las muestras 1 y 2 son dos capas: suave (1-80) y fuerte (81-127). Se acomodan solas
+// solo cuando se carga o se quita una muestra desde este modo (nunca pisan lo hecho en el avanzado).
+void DecimulTriggerEditor::normalizeCommonRanges()
+{
+    for (int i = 2; i < DecimulTriggerProcessor::numSlots; ++i)
+    {
+        const auto info = processorRef.getSlotInfo(i);
+        if (info.loaded || info.loading)
+            return;
+    }
+    const auto a = processorRef.getSlotInfo(0), b = processorRef.getSlotInfo(1);
+    if (a.loading || b.loading)
+        return;
+
+    int lo0 = 1, hi0 = 127, lo1 = 1, hi1 = 127;
+    processorRef.getVelocityRange(0, lo0, hi0);
+    processorRef.getVelocityRange(1, lo1, hi1);
+
+    if (a.loaded && b.loaded)
+    {
+        if (lo0 == 1 && hi0 == 127 && lo1 == 1 && hi1 == 127)
+        {
+            processorRef.setVelocityRange(0, 1, 80);
+            processorRef.setVelocityRange(1, 81, 127);
+        }
+    }
+    else if (a.loaded && lo0 == 1 && hi0 == 80)
+        processorRef.setVelocityRange(0, 1, 127);
+    else if (b.loaded && lo1 == 81 && hi1 == 127)
+        processorRef.setVelocityRange(1, 1, 127);
 }
 
 DecimulTriggerEditor::~DecimulTriggerEditor()
@@ -493,6 +650,7 @@ void DecimulTriggerEditor::openFileChooser(int slot)
         {
             lastDirectory = file.getParentDirectory();
             processorRef.loadSample(slot, file);
+            pendingNormalize = !advanced;
         }
     });
 }
@@ -512,7 +670,10 @@ void DecimulTriggerEditor::showSlotMenu(int slot)
         if (result == 1)
             openFileChooser(slot);
         else if (result == 2)
+        {
             processorRef.clearSample(slot);
+            pendingNormalize = !advanced;
+        }
         else if (result == 3)
             processorRef.setVelocityRange(slot, 1, 127);
         else if (result == 4)
@@ -561,15 +722,16 @@ void DecimulTriggerEditor::filesDropped(const juce::StringArray& files, int x, i
         return;
 
     // Si se suelta sobre una fila, arranca ahí; si no, en la primera vacía.
+    const int usable = usableSlots();
     int start = -1;
-    for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)
+    for (int i = 0; i < usable; ++i)
         if (slotButtons[(size_t) i]->getBounds().contains(x, y))
             start = i;
 
     if (start < 0)
     {
         start = 0;
-        for (int i = 0; i < DecimulTriggerProcessor::numSlots; ++i)
+        for (int i = 0; i < usable; ++i)
             if (!processorRef.getSlotInfo(i).loaded && !processorRef.getSlotInfo(i).loading)
             {
                 start = i;
@@ -578,8 +740,9 @@ void DecimulTriggerEditor::filesDropped(const juce::StringArray& files, int x, i
     }
 
     int fileIndex = 0;
-    for (int n = 0; n < DecimulTriggerProcessor::numSlots && fileIndex < audio.size(); ++n)
-        processorRef.loadSample((start + n) % DecimulTriggerProcessor::numSlots, audio[fileIndex++]);
+    for (int n = 0; n < usable && fileIndex < audio.size(); ++n)
+        processorRef.loadSample((start + n) % usable, audio[fileIndex++]);
+    pendingNormalize = !advanced;
 }
 
 // ------------------------------- Dibujo -------------------------------
@@ -591,15 +754,28 @@ void DecimulTriggerEditor::paint(juce::Graphics& g)
     DecimuChrome::paintRackHandles(g, full);
     DecimuChrome::paintCornerScrews(g, full, 12.0f);
 
-    DecimuChrome::paintCompartment(g, topbarRect.toFloat(), false, 8.0f);
-    DecimuChrome::paintCompartment(g, scopeRect.toFloat(), false, 8.0f);
-    DecimuChrome::paintCompartment(g, detectRect.toFloat(), true, 8.0f);
-    DecimuChrome::paintCompartment(g, velocityRect.toFloat(), false, 8.0f);
-    DecimuChrome::paintCompartment(g, midiRect.toFloat(), true, 8.0f);
-    DecimuChrome::paintCompartment(g, printRect.toFloat(), false, 8.0f);
-    DecimuChrome::paintCompartment(g, captureRect.toFloat(), true, 8.0f);
-    DecimuChrome::paintCompartment(g, samplerRect.toFloat(), false, 8.0f);
-    DecimuChrome::paintCompartment(g, outputRect.toFloat(), true, 8.0f);
+    auto compartment = [&g](juce::Rectangle<int> r, bool recessed)
+    {
+        if (!r.isEmpty())
+            DecimuChrome::paintCompartment(g, r.toFloat(), recessed, 8.0f);
+    };
+    compartment(topbarRect, false);
+    compartment(scopeRect, false);
+    compartment(detectRect, true);
+    compartment(velocityRect, false);
+    compartment(midiRect, true);
+    compartment(printRect, false);
+    compartment(captureRect, true);
+    compartment(samplerRect, false);
+    compartment(outputRect, true);
+
+    if (!warnRect.isEmpty())
+    {
+        g.setColour(DecimuColours::accentPrimary.withAlpha(0.12f));
+        g.fillRoundedRectangle(warnRect.toFloat(), 6.0f);
+        g.setColour(DecimuColours::accentPrimary.withAlpha(0.7f));
+        g.drawRoundedRectangle(warnRect.toFloat().reduced(0.5f), 6.0f, 1.2f);
+    }
 
     auto logoArea = headerLogoArea;
     if (dogImage.isValid())
@@ -630,12 +806,31 @@ void DecimulTriggerEditor::paint(juce::Graphics& g)
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
     for (const auto& caption : slotCaptions)
         g.drawText(caption.text, caption.area, juce::Justification::centred);
+
+    if (!advanced)
+        for (int i = 0; i < 2; ++i)
+        {
+            int lo = 1, hi = 127;
+            processorRef.getVelocityRange(i, lo, hi);
+            g.drawText(juce::String(i == 0 ? "MUESTRA 1: GOLPES SUAVES" : "MUESTRA 2: GOLPES FUERTES")
+                           + "   (velocity " + juce::String(lo) + " a " + juce::String(hi) + ")",
+                       commonCaptionAreas[(size_t) i], juce::Justification::centredLeft);
+        }
 }
 
 void DecimulTriggerEditor::resized()
 {
     tips.layout(getLocalBounds());
+    if (advanced)
+        layoutAdvanced();
+    else
+        layoutCommon();
+}
 
+// Modo común: lo esencial. Detección (Threshold, Max Level, Retrigger, Calibrar), la nota, grabar y
+// exportar el MIDI, el modo del reproductor con sus dos niveles y dos muestras (suave y fuerte).
+void DecimulTriggerEditor::layoutCommon()
+{
     auto content = getLocalBounds().reduced(22, 18);
     content.removeFromBottom(8);
 
@@ -645,6 +840,124 @@ void DecimulTriggerEditor::resized()
     auto header = topbarRect.reduced(10, 8);
     bypassButton.setBounds(header.removeFromRight(110));
     vuArc.setBounds(header.removeFromRight(96).reduced(2));
+    header.removeFromRight(10);
+    modePill.setBounds(header.removeFromRight(130).reduced(0, 4));
+    header.removeFromRight(10);
+    headerLogoArea = header;
+
+    constexpr int gap = 8;
+    outputRect = content.removeFromRight(112);
+    content.removeFromRight(gap);
+
+    velocityRect = printRect = captureRect = juce::Rectangle<int>();
+    slotCaptions.clear();
+
+    scopeRect = content.removeFromTop(200);
+    {
+        auto area = scopeRect.reduced(8);
+        readout.setBounds(area.removeFromRight(210));
+        area.removeFromRight(8);
+        scope.setBounds(area);
+    }
+    content.removeFromTop(gap);
+
+    warnRect = juce::Rectangle<int>();
+    if (hiddenCount > 0)
+    {
+        warnRect = content.removeFromTop(30);
+        content.removeFromTop(gap);
+        auto a = warnRect.reduced(8, 3);
+        warnPill.setBounds(a.removeFromRight(140));
+        a.removeFromRight(8);
+        warnLabel.setBounds(a);
+    }
+
+    auto knobsRow = content.removeFromTop(146);
+    detectRect = knobsRow.removeFromLeft(knobsRow.getWidth() * 11 / 20);
+    knobsRow.removeFromLeft(gap);
+    midiRect = knobsRow;
+    content.removeFromTop(gap);
+
+    {
+        auto area = detectRect.reduced(8, 6);
+        detectLabel.setBounds(area.removeFromTop(16));
+        auto bottom = area.removeFromBottom(26);
+        calibratePill.setBounds(bottom.removeFromLeft(std::min(116, bottom.getWidth())).reduced(0, 1));
+        bottom.removeFromLeft(8);
+        calibrateStatus.setBounds(bottom);
+        const int w = area.getWidth() / 3;
+        for (auto* k : { &thresholdKnob, &maxLevelKnob, &retriggerKnob })
+            placeKnob(*k, area.removeFromLeft(w).reduced(2));
+    }
+    {
+        auto area = midiRect.reduced(8, 6);
+        midiLabel.setBounds(area.removeFromTop(16));
+        placeKnob(noteKnob, area.removeFromLeft(110).reduced(2));
+        area.removeFromLeft(6);
+        auto pills = area.removeFromTop(26);
+        const int pw = (pills.getWidth() - 6) / 2;
+        recPill.setBounds(pills.removeFromLeft(pw));
+        pills.removeFromLeft(6);
+        exportMidiPill.setBounds(pills);
+        area.removeFromTop(6);
+        captureStatus.setBounds(area);
+    }
+
+    samplerRect = content;
+    {
+        auto area = samplerRect.reduced(10, 8);
+        samplerLabel.setBounds(area.removeFromTop(16));
+        area.removeFromTop(4);
+
+        auto left = area.removeFromLeft(330);
+        area.removeFromLeft(14);
+
+        auto modes = left.removeFromTop(28);
+        const int mw = (modes.getWidth() - 12) / 3;
+        samplerOffPill.setBounds(modes.removeFromLeft(mw));
+        modes.removeFromLeft(6);
+        samplerReinforcePill.setBounds(modes.removeFromLeft(mw));
+        modes.removeFromLeft(6);
+        samplerReplacePill.setBounds(modes);
+        left.removeFromTop(6);
+
+        auto knobs = left.removeFromTop(84);
+        placeKnob(sampleLevelKnob, knobs.removeFromLeft(120).reduced(2));
+        placeKnob(origLevelKnob, knobs.removeFromLeft(120).reduced(2));
+        left.removeFromTop(4);
+        hintLabel.setBounds(left);
+
+        const int rowH = std::clamp((area.getHeight() - 2 * 18 - 6) / 2, 28, 56);
+        for (int i = 0; i < 2; ++i)
+        {
+            commonCaptionAreas[(size_t) i] = area.removeFromTop(18);
+            slotButtons[(size_t) i]->setBounds(area.removeFromTop(rowH));
+            area.removeFromTop(6);
+        }
+    }
+
+    {
+        auto col = outputRect.reduced(10);
+        outputLabel.setBounds(col.removeFromBottom(20));
+        outputMeter.setBounds(col.removeFromLeft(16));
+        outputSlider.setBounds(col);
+    }
+}
+
+void DecimulTriggerEditor::layoutAdvanced()
+{
+    warnRect = juce::Rectangle<int>();
+    auto content = getLocalBounds().reduced(22, 18);
+    content.removeFromBottom(8);
+
+    topbarRect = content.removeFromTop(54);
+    content.removeFromTop(8);
+
+    auto header = topbarRect.reduced(10, 8);
+    bypassButton.setBounds(header.removeFromRight(110));
+    vuArc.setBounds(header.removeFromRight(96).reduced(2));
+    header.removeFromRight(10);
+    modePill.setBounds(header.removeFromRight(130).reduced(0, 4));
     header.removeFromRight(10);
     headerLogoArea = header;
 
@@ -1073,7 +1386,23 @@ void DecimulTriggerEditor::timerCallback()
     else
         hint = "Reemplazar: se silencia el original y suena solo la muestra. Varias muestras con el "
                "mismo rango de velocity se turnan (round-robin).";
+    if (!advanced)
+        hint = juce::String(mode == 0 ? "Solo MIDI: manda notas con velocity a lo que sigue en la cadena."
+                            : mode == 1 ? "Reforzar: suena el original junto con la muestra."
+                                        : "Reemplazar: suena solo la muestra.")
+             + "\nArrastra un archivo a cada muestra: la 1 suena con los golpes suaves y la 2 con los fuertes.";
     hintLabel.setText(hint, juce::dontSendNotification);
+
+    updateHiddenWarning();
+    if (pendingNormalize && !advanced)
+    {
+        const auto a = processorRef.getSlotInfo(0), b = processorRef.getSlotInfo(1);
+        if (!a.loading && !b.loading)
+        {
+            pendingNormalize = false;
+            normalizeCommonRanges();
+        }
+    }
 
     // Salida
     const float outDb = processorRef.outputPeakDb.load();

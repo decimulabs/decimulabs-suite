@@ -1560,6 +1560,7 @@ void DecimulTriggerProcessor::getStateInformation(juce::MemoryBlock& destData)
 
     if (auto xml = state.createXml())
     {
+        xml->setAttribute("uiAdvanced", uiAdvanced.load());
         auto* samples = xml->createNewChildElement("TRIGGER_SAMPLES");
         for (int s = 0; s < numSlots; ++s)
         {
@@ -1591,6 +1592,8 @@ void DecimulTriggerProcessor::setStateInformation(const void* data, int sizeInBy
     auto xml = getXmlFromBinary(data, sizeInBytes);
     if (xml == nullptr)
         return;
+
+    uiAdvanced.store(xml->getBoolAttribute("uiAdvanced", false));
 
     std::vector<std::pair<int, juce::File>> toLoad;
 

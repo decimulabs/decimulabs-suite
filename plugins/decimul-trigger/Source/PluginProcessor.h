@@ -199,6 +199,9 @@ public:
     std::atomic<float> lastSimilarity { -1.0f };   // parecido del último golpe con la huella (-1 = sin dato)
     std::atomic<int> rejectedCount { 0 };
 
+    /** Modo de la interfaz: false = común (lo esencial), true = avanzado (todo). Se guarda en el estado. */
+    std::atomic<bool> uiAdvanced { false };
+
     // ---------------- Captura (message thread) ----------------
     void setCapturing(bool shouldCapture);
     bool isCapturing() const { return capturing.load(); }

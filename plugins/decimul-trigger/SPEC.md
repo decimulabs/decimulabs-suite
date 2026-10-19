@@ -24,6 +24,7 @@ nombre, interfaz y código propios.
 | **v0.3** | **Huella del golpe**: aprende la forma espectral del instrumento y rechaza los golpes que no se parecen (bleed). |
 | **v0.4** | **Captura**: graba cada golpe aceptado y arma muestras repartidas en capas por velocity y alternancias, ya cargadas en el reproductor. |
 | **v0.5** | **Ajuste fino y MIDI**: sensibilidad del ataque, botón *Calibrar*, polaridad y desfase de las muestras contra el original, ganancia y afinación por muestra, MIDI de entrada que toca el reproductor y exportación de los golpes a .mid. |
+| **v0.6** | **Modo común y avanzado** (botón arriba a la derecha). El común muestra solo lo esencial: monitor, Threshold, Max Level, Retrigger, Calibrar, Nota, Grabar golpes y Exportar MIDI, modo del reproductor con sus dos niveles y **2 muestras** (la 1 para golpes suaves, la 2 para fuertes: al cargarlas desde este modo quedan en 1-80 y 81-127). El avanzado es la interfaz completa con las 8 muestras. Lo que queda oculto **sigue funcionando** y el común avisa con una barra ("AVANZADO ACTIVO (n): ..." y un botón para verlo) cuando hay algo fuera de su valor normal (filtros, velocity, bleed, muestras 3 a 8, etc.). El modo se guarda en el estado (una sesión vieja abre en común); ventana común 980x720, avanzada 1180x880. |
 
 ## Qué hace
 

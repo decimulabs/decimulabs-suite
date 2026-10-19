@@ -81,12 +81,22 @@ private:
     void commitSlotTune(int slot);
     void refreshCaptureStatus();
 
+    // Modo común / avanzado
+    void layoutAdvanced();
+    void layoutCommon();
+    void setAdvanced(bool shouldBeAdvanced);
+    void applyMode();
+    void updateHiddenWarning();
+    void normalizeCommonRanges();
+    int usableSlots() const { return advanced ? DecimulTriggerProcessor::numSlots : 2; }
+
     DecimulTriggerProcessor& processorRef;
     DecimuLookAndFeel lookAndFeel { DecimuAccentTheme::coralRed() };
 
     juce::Image wordmarkImage, dogImage;
     juce::Rectangle<int> topbarRect, scopeRect, detectRect, velocityRect, midiRect, samplerRect, outputRect;
-    juce::Rectangle<int> printRect, captureRect;
+    juce::Rectangle<int> printRect, captureRect, warnRect;
+    std::array<juce::Rectangle<int>, 2> commonCaptionAreas;
     juce::Rectangle<int> headerLogoArea;
 
     struct SlotCaption
@@ -95,6 +105,15 @@ private:
         juce::String text;
     };
     std::vector<SlotCaption> slotCaptions;
+
+    // Modo: común = lo esencial; avanzado = todo. Lo que queda oculto sigue funcionando y el
+    // modo común avisa (warnLabel) cuando hay algo del avanzado fuera de su valor normal.
+    bool advanced = false;
+    int hiddenCount = 0;
+    bool pendingNormalize = false;
+    DecimuPillButton modePill { "AVANZADO" }, warnPill { "VER AVANZADO" };
+    juce::Label warnLabel;
+    std::vector<juce::Component*> advancedOnly;
 
     HitScope scope;
     HitReadout readout;

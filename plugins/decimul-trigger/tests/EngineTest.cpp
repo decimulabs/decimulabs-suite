@@ -324,8 +324,21 @@ int main(int argc, char** argv)
         p->setVelocityRange(3, 91, 127);
 
         // El editor se abre antes de tocar: al abrirse descarta lo que había en la cola.
+        // --comun y --comun-limpio abren el modo común (con y sin ajustes avanzados activos); el resto, el avanzado.
+        const juce::String shotFlag = argc >= 4 ? juce::String(argv[3]) : juce::String();
+        const bool commonShot = shotFlag == "--comun" || shotFlag == "--comun-limpio";
+        if (shotFlag == "--comun-limpio")
+        {
+            p->clearSample(2);
+            p->clearSample(3);
+            setParam(*p, ParamIDs::fingerprint, 0.0f);
+            p->setVelocityRange(0, 1, 80);
+            p->setVelocityRange(1, 81, 127);
+        }
+        p->uiAdvanced.store(!commonShot);
         std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
-        editor->setSize(1180, 880);
+        if (!commonShot)
+            editor->setSize(1180, 880);
         // DECIMU_SHOT_SIZE=1700x1000 estira la ventana (para revisar que las perillas no se ovalen).
         if (const auto shotSize = juce::SystemStats::getEnvironmentVariable("DECIMU_SHOT_SIZE", {}); shotSize.contains("x"))
             editor->setSize(shotSize.upToFirstOccurrenceOf("x", false, false).getIntValue(),
@@ -1350,6 +1363,34 @@ int main(int argc, char** argv)
                   && p2->apvts.getRawParameterValue(ParamIDs::polarity)->load() > 0.5f
                   && (int) p2->apvts.getRawParameterValue(ParamIDs::midiIn)->load() == 2,
               "estado: ataque, desfase, polaridad y MIDI in");
+    }
+
+    // Modo de la interfaz (común / avanzado): se guarda en el estado; una sesión vieja abre en común.
+    {
+        auto p = makeProcessor();
+        check(!p->uiAdvanced.load(), "modo: por defecto arranca en común");
+        p->uiAdvanced.store(true);
+        juce::MemoryBlock state;
+        p->getStateInformation(state);
+        auto q = makeProcessor();
+        q->setStateInformation(state.getData(), (int) state.getSize());
+        check(q->uiAdvanced.load(), "modo: el avanzado se guarda y se restaura");
+
+        auto r = makeProcessor();
+        r->uiAdvanced.store(false);
+        juce::MemoryBlock state2;
+        r->getStateInformation(state2);
+        q->setStateInformation(state2.getData(), (int) state2.getSize());
+        check(!q->uiAdvanced.load(), "modo: el común también se restaura");
+
+        // una sesión guardada antes de que existiera el modo (sin ese atributo) abre en común
+        auto xml = juce::AudioProcessor::getXmlFromBinary(state2.getData(), (int) state2.getSize());
+        xml->removeAttribute("uiAdvanced");
+        juce::MemoryBlock old;
+        juce::AudioProcessor::copyXmlToBinary(*xml, old);
+        q->uiAdvanced.store(true);
+        q->setStateInformation(old.getData(), (int) old.getSize());
+        check(!q->uiAdvanced.load(), "modo: una sesión vieja sin el dato abre en común");
     }
 
     std::cout << (failures == 0 ? "\nTODO OK" : (juce::String("\nHAY FALLAS: ") + juce::String(failures)).toRawUTF8()) << std::endl;
