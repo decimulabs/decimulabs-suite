@@ -48,6 +48,7 @@ struct DecimuAccentTheme
     static DecimuAccentTheme limeGreen()  { return { juce::Colour(0xffB8FF6A), juce::Colour(0xff4FCB3A), juce::Colour(0xff93E86F) }; }
     static DecimuAccentTheme coralRed()   { return { juce::Colour(0xffFF9A7A), juce::Colour(0xffE5533B), juce::Colour(0xffF07C62) }; }
     static DecimuAccentTheme tealMint()   { return { juce::Colour(0xff7FFFD4), juce::Colour(0xff2BB59B), juce::Colour(0xff5ED6BC) }; }
+    static DecimuAccentTheme indigo()     { return { juce::Colour(0xff9AA8FF), juce::Colour(0xff4F5FE0), juce::Colour(0xff7A8BF5) }; }
 };
 
 class DecimuLookAndFeel : public juce::LookAndFeel_V4
