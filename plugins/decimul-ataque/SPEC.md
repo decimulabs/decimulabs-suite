@@ -6,8 +6,8 @@ estéreo no se mueve) y con el mismo efecto sin importar qué tan fuerte sea el 
 
 El nombre es provisorio ("Ataque"): se cambia en `CMakeLists.txt` (`PRODUCT_NAME`) y en los textos de la UI.
 
-Inspirado en los moduladores de transientes clásicos y modernos (*Transient Designer* de SPL,
-*Transient Shaper* de Native Instruments, *Smack Attack* de Waves, *Punchbox*, entre otros).
+Inspirado en moduladores de transientes como *Transient Designer* (SPL), *Transient Master* (Native
+Instruments) y *Smack Attack* (Waves) — nombres verificados con una búsqueda web el 22/10/2026.
 Implementación propia con nombre, interfaz y código propios.
 
 ## Uso
