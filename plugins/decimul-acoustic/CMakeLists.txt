@@ -78,3 +78,18 @@ if(DECIMU_ACOUSTIC_TESTS)
         juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Captura de la UI sin DAW (opcional): cmake -DDECIMU_ACOUSTIC_UISHOT=ON
+option(DECIMU_ACOUSTIC_UISHOT "Build the Acoustic UI screenshot tool" OFF)
+if(DECIMU_ACOUSTIC_UISHOT)
+    juce_add_console_app(AcousticUiShot PRODUCT_NAME "AcousticUiShot")
+    target_sources(AcousticUiShot PRIVATE tests/UiShot.cpp)
+    target_compile_options(AcousticUiShot PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_compile_definitions(AcousticUiShot PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(AcousticUiShot PRIVATE
+        DecimulAcoustic
+        decimu_shared_ui
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags)
+endif()

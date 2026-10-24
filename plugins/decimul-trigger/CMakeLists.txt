@@ -76,3 +76,18 @@ if(DECIMU_TRIGGER_TESTS)
         juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Captura de la UI sin DAW (opcional): cmake -DDECIMU_TRIGGER_UISHOT=ON
+option(DECIMU_TRIGGER_UISHOT "Build the Trigger UI screenshot tool" OFF)
+if(DECIMU_TRIGGER_UISHOT)
+    juce_add_console_app(TriggerUiShot PRODUCT_NAME "TriggerUiShot")
+    target_sources(TriggerUiShot PRIVATE tests/UiShot.cpp)
+    target_compile_options(TriggerUiShot PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_compile_definitions(TriggerUiShot PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(TriggerUiShot PRIVATE
+        DecimulTrigger
+        decimu_shared_ui
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags)
+endif()

@@ -73,3 +73,18 @@ if(DECIMU_FLANK_TESTS)
         juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Captura de la UI sin DAW (opcional): cmake -DDECIMU_FLANK_UISHOT=ON
+option(DECIMU_FLANK_UISHOT "Build the Flank UI screenshot tool" OFF)
+if(DECIMU_FLANK_UISHOT)
+    juce_add_console_app(FlankUiShot PRODUCT_NAME "FlankUiShot")
+    target_sources(FlankUiShot PRIVATE tests/UiShot.cpp)
+    target_compile_options(FlankUiShot PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_compile_definitions(FlankUiShot PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(FlankUiShot PRIVATE
+        DecimulFlank
+        decimu_shared_ui
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags)
+endif()

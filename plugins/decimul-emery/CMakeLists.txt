@@ -73,3 +73,18 @@ if(DECIMU_EMERY_TESTS)
         juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Captura de la UI sin DAW (opcional): cmake -DDECIMU_EMERY_UISHOT=ON
+option(DECIMU_EMERY_UISHOT "Build the Emery UI screenshot tool" OFF)
+if(DECIMU_EMERY_UISHOT)
+    juce_add_console_app(EmeryUiShot PRODUCT_NAME "EmeryUiShot")
+    target_sources(EmeryUiShot PRIVATE tests/UiShot.cpp)
+    target_compile_options(EmeryUiShot PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_compile_definitions(EmeryUiShot PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(EmeryUiShot PRIVATE
+        DecimulEmery
+        decimu_shared_ui
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags)
+endif()

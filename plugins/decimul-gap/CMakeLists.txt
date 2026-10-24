@@ -73,3 +73,18 @@ if(DECIMU_GAP_TESTS)
         juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Captura de la UI sin DAW (opcional): cmake -DDECIMU_GAP_UISHOT=ON
+option(DECIMU_GAP_UISHOT "Build the Gap UI screenshot tool" OFF)
+if(DECIMU_GAP_UISHOT)
+    juce_add_console_app(GapUiShot PRODUCT_NAME "GapUiShot")
+    target_sources(GapUiShot PRIVATE tests/UiShot.cpp)
+    target_compile_options(GapUiShot PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_compile_definitions(GapUiShot PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(GapUiShot PRIVATE
+        DecimulGap
+        decimu_shared_ui
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags)
+endif()

@@ -72,3 +72,18 @@ if(DECIMU_GUITARS_TESTS)
         juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Captura de la UI sin DAW (opcional): cmake -DDECIMU_GUITARS_UISHOT=ON
+option(DECIMU_GUITARS_UISHOT "Build the Guitars UI screenshot tool" OFF)
+if(DECIMU_GUITARS_UISHOT)
+    juce_add_console_app(GuitarsUiShot PRODUCT_NAME "GuitarsUiShot")
+    target_sources(GuitarsUiShot PRIVATE tests/UiShot.cpp)
+    target_compile_options(GuitarsUiShot PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_compile_definitions(GuitarsUiShot PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(GuitarsUiShot PRIVATE
+        DecimulGuitars
+        decimu_shared_ui
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags)
+endif()

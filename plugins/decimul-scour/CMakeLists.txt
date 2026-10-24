@@ -83,3 +83,18 @@ if(DECIMU_SCOUR_TESTS)
     target_compile_features(ScourDspTest PRIVATE cxx_std_20)
     target_compile_options(ScourDspTest PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /O2>)
 endif()
+
+# Captura de la UI sin DAW (opcional): cmake -DDECIMU_SCOUR_UISHOT=ON
+option(DECIMU_SCOUR_UISHOT "Build the Scour UI screenshot tool" OFF)
+if(DECIMU_SCOUR_UISHOT)
+    juce_add_console_app(ScourUiShot PRODUCT_NAME "ScourUiShot")
+    target_sources(ScourUiShot PRIVATE tests/UiShot.cpp)
+    target_compile_options(ScourUiShot PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_compile_definitions(ScourUiShot PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(ScourUiShot PRIVATE
+        DecimulScour
+        decimu_shared_ui
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags)
+endif()

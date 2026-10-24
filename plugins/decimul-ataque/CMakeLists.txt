@@ -73,3 +73,18 @@ if(DECIMU_ATAQUE_TESTS)
         juce::juce_dsp
         juce::juce_recommended_config_flags)
 endif()
+
+# Captura de la UI sin DAW (opcional): cmake -DDECIMU_ATAQUE_UISHOT=ON
+option(DECIMU_ATAQUE_UISHOT "Build the Ataque UI screenshot tool" OFF)
+if(DECIMU_ATAQUE_UISHOT)
+    juce_add_console_app(AtaqueUiShot PRODUCT_NAME "AtaqueUiShot")
+    target_sources(AtaqueUiShot PRIVATE tests/UiShot.cpp)
+    target_compile_options(AtaqueUiShot PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_compile_definitions(AtaqueUiShot PRIVATE
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(AtaqueUiShot PRIVATE
+        DecimulAtaque
+        decimu_shared_ui
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags)
+endif()
