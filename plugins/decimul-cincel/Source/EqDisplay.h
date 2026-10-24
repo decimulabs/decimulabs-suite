@@ -7,7 +7,7 @@
 #include <vector>
 
 /**
-    La pantalla de Prisma: el analizador de espectro de fondo y encima la curva del EQ con un
+    La pantalla de Cincel: el analizador de espectro de fondo y encima la curva del EQ con un
     punto por banda. Todo se hace con el mouse, como en el Pro-Q:
 
       - doble clic en un lugar vacío: banda nueva (pegado a los bordes, un corte);
@@ -24,7 +24,7 @@ class EqDisplay : public juce::Component,
                   public juce::SettableTooltipClient
 {
 public:
-    explicit EqDisplay(DecimulPrismaProcessor&);
+    explicit EqDisplay(DecimulCincelProcessor&);
 
     /** Lee bandas, dinámica y analizadores; se llama desde el timer del editor. */
     void refresh();
@@ -57,7 +57,7 @@ public:
     // ---- Opciones ----
     bool sketchMode = false;
     std::function<void()> onSketchFinished;
-    int overlayInstance = 0;           // 0 = ninguna; si no, el id de otra instancia de Prisma
+    int overlayInstance = 0;           // 0 = ninguna; si no, el id de otra instancia de Cincel
     bool spanish = false;
 
     static juce::Colour bandColour(int index);
@@ -101,16 +101,16 @@ private:
     void finishSketch();
     juce::Font mono(float h) const;
 
-    DecimulPrismaProcessor& proc;
+    DecimulCincelProcessor& proc;
     juce::Rectangle<float> plot;      // zona del gráfico (sin rótulos)
     juce::Rectangle<float> pianoArea;
 
-    std::array<prisma::BandParams, prisma::maxBands> bands {};
-    std::array<curves::Curve, prisma::maxBands> bandCurves {}, staticCurves {};
-    std::array<prisma::BandParams, prisma::maxBands> curveKey {};
-    std::array<float, prisma::maxBands> curveDynKey {};
-    std::array<bool, prisma::maxBands> curveValid {};
-    std::array<float, prisma::maxBands> dynOffset {};
+    std::array<cincel::BandParams, cincel::maxBands> bands {};
+    std::array<curves::Curve, cincel::maxBands> bandCurves {}, staticCurves {};
+    std::array<cincel::BandParams, cincel::maxBands> curveKey {};
+    std::array<float, cincel::maxBands> curveDynKey {};
+    std::array<bool, cincel::maxBands> curveValid {};
+    std::array<float, cincel::maxBands> dynOffset {};
     curves::Curve mainCurve {}, leftCurve {}, rightCurve {}, sideCurve {};
     bool anyLR = false, anySide = false;
     double gainScale = 1.0;

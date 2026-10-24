@@ -1,12 +1,12 @@
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
-#include "dsp/PrismaFft.h"
+#include "dsp/CincelFft.h"
 #include <array>
 #include <vector>
 
 /**
-    Analizador de espectro de Prisma. El hilo de audio solo copia muestras (suma mono) a una cola;
+    Analizador de espectro de Cincel. El hilo de audio solo copia muestras (suma mono) a una cola;
     el hilo de mensajes saca esas muestras, calcula la FFT de las últimas N (según la resolución
     elegida) y la pasa a una grilla logarítmica fija de `points` puntos (10 Hz a 30 kHz), en dB
     calibrados: una senoidal a 0 dBFS se ve en 0 dB.
@@ -148,7 +148,7 @@ public:
 private:
     struct Resolution
     {
-        prisma::RealFft<float> fft;
+        cincel::RealFft<float> fft;
         std::vector<float> window;
         float norm = 1.0f;
         std::array<int, points> kLo {}, kHi {};

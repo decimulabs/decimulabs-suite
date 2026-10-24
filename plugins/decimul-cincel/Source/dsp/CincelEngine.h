@@ -1,6 +1,6 @@
 #pragma once
 
-// Motor completo de Prisma (sin JUCE): junta los tres modos de proceso, la dinámica espectral,
+// Motor completo de Cincel (sin JUCE): junta los tres modos de proceso, la dinámica espectral,
 // el solo de banda, el "carácter", el auto gain y la salida (ganancia, paneo, fase, bypass).
 //
 // Orden de la señal:
@@ -10,11 +10,11 @@
 // desfasan. Cambiar de modo (o prender la dinámica espectral) cambia la latencia: se hace con
 // un fundido corto a silencio y de vuelta.
 
-#include "PrismaLinear.h"
-#include "PrismaOversampler.h"
-#include "PrismaSpectral.h"
+#include "CincelLinear.h"
+#include "CincelOversampler.h"
+#include "CincelSpectral.h"
 
-namespace prisma
+namespace cincel
 {
 enum class Mode : int { ZeroLatency = 0, NaturalPhase, LinearPhase };
 enum class Character : int { Clean = 0, Subtle, Warm };
@@ -594,4 +594,4 @@ private:
 
     double smOut = 1.0, smL = 1.0, smR = 1.0, smBypass = 0.0;
 };
-} // namespace prisma
+} // namespace cincel

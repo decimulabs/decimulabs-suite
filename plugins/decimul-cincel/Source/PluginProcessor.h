@@ -1,14 +1,14 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
-#include "dsp/PrismaEngine.h"
+#include "dsp/CincelEngine.h"
 #include "Analyzer.h"
 #include "CurveMath.h"
 #include "InstanceRegistry.h"
 #include <array>
 #include <atomic>
 
-namespace PrismaIDs
+namespace CincelIDs
 {
     // Por banda: "b1_freq" ... "b24_spec".
     enum BandKey { used = 0, on, freq, gain, q, shape, slope, place, dyn, range, thr, autoThr, sc, spec, numBandKeys };
@@ -29,7 +29,7 @@ namespace PrismaIDs
 }
 
 /**
-    DecimuLabs Prisma (nombre de trabajo) — EQ paramétrico de 24 bandas en la línea del FabFilter
+    DecimuLabs Cincel — EQ paramétrico de 24 bandas en la línea del FabFilter
     Pro-Q: curva interactiva sobre el analizador, nueve formas de filtro con pendientes de 6 a
     96 dB/oct y brickwall, modos de latencia cero / fase natural / fase lineal, EQ dinámico y
     dinámica espectral por banda, bandas en estéreo/izquierda/derecha/centro/lados, solo de banda,
@@ -37,12 +37,12 @@ namespace PrismaIDs
     El audio lo hace el motor de Source/dsp (C++ puro, probado sin JUCE); acá están los parámetros,
     el estado, los presets, el A/B, el deshacer y la conexión con la pantalla.
 */
-class DecimulPrismaProcessor : public juce::AudioProcessor,
+class DecimulCincelProcessor : public juce::AudioProcessor,
                                private juce::Timer
 {
 public:
-    DecimulPrismaProcessor();
-    ~DecimulPrismaProcessor() override;
+    DecimulCincelProcessor();
+    ~DecimulCincelProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -74,11 +74,11 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
     // ---- Bandas (hilo de mensajes) ----
-    prisma::BandParams readBand(int index) const;
-    void writeBand(int index, const prisma::BandParams& b);
-    void readAllBands(std::array<prisma::BandParams, prisma::maxBands>& out) const;
+    cincel::BandParams readBand(int index) const;
+    void writeBand(int index, const cincel::BandParams& b);
+    void readAllBands(std::array<cincel::BandParams, cincel::maxBands>& out) const;
     int firstFreeBand() const;
-    juce::RangedAudioParameter* bandParam(int index, PrismaIDs::BandKey key) const;
+    juce::RangedAudioParameter* bandParam(int index, CincelIDs::BandKey key) const;
     float globalValue(const juce::String& id) const { return apvts.getRawParameterValue(id)->load(); }
     void setGlobal(const juce::String& id, float plainValue);
 
@@ -92,7 +92,7 @@ public:
     std::atomic<bool> editorOpen { false };
     curves::Curve totalCurve {};
     double getSampleRateHz() const { return currentRate; }
-    const prisma::DynamicsTelemetry& dynamicsTelemetry() const { return engine.telemetry; }
+    const cincel::DynamicsTelemetry& dynamicsTelemetry() const { return engine.telemetry; }
     float autoGainDb() const { return engine.autoGainDb(); }
     int latencySamples() const { return reportedLatency; }
 
@@ -119,10 +119,10 @@ public:
 private:
     void timerCallback() override;
     int predictedLatency() const;
-    void fillBands(std::array<prisma::BandParams, prisma::maxBands>& out) const;
-    void fillGlobals(prisma::GlobalParams& g) const;
+    void fillBands(std::array<cincel::BandParams, cincel::maxBands>& out) const;
+    void fillGlobals(cincel::GlobalParams& g) const;
 
-    std::array<std::array<std::atomic<float>*, PrismaIDs::numBandKeys>, prisma::maxBands> bandRaw {};
+    std::array<std::array<std::atomic<float>*, CincelIDs::numBandKeys>, cincel::maxBands> bandRaw {};
     std::atomic<float>* rawMode = nullptr;
     std::atomic<float>* rawLpRes = nullptr;
     std::atomic<float>* rawCharacter = nullptr;
@@ -136,19 +136,19 @@ private:
     std::atomic<float>* rawPhase = nullptr;
     std::atomic<float>* rawBypass = nullptr;
 
-    prisma::Engine engine;
-    std::array<prisma::BandParams, prisma::maxBands> audioBands {};
+    cincel::Engine engine;
+    std::array<cincel::BandParams, cincel::maxBands> audioBands {};
     double currentRate = 48000.0;
     bool stereoLayout = true;
     bool lastOffline = false;
     int reportedLatency = -1;
 
-    std::array<prisma::BandParams, prisma::maxBands> curveBands {};
+    std::array<cincel::BandParams, cincel::maxBands> curveBands {};
     double curveScale = 1.0;
     bool curveGainQ = false, curveValid = false;
 
     juce::ValueTree abStates[2];
     int abSlot = 0;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulPrismaProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulCincelProcessor)
 };

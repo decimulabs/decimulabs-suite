@@ -8,7 +8,7 @@
 #include <complex>
 #include <vector>
 
-namespace prisma
+namespace cincel
 {
 template <typename T>
 class ComplexFft
@@ -147,4 +147,4 @@ private:
     ComplexFft<T> half;
     std::vector<C> scratch, w;
 };
-} // namespace prisma
+} // namespace cincel

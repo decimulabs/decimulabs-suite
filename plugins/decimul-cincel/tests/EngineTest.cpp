@@ -1,7 +1,7 @@
-// Test de integración de Prisma (el plugin entero, con JUCE): parámetros, estado, presets, A/B,
+// Test de integración de Cincel (el plugin entero, con JUCE): parámetros, estado, presets, A/B,
 // deshacer, latencia informada, mono y sidechain. El motor de audio en sí se prueba a fondo en
 // tests/DspTest.cpp (sin JUCE).
-// Compilar con: cmake -DDECIMU_PRISMA_TESTS=ON y correr PrismaEngineTest.exe.
+// Compilar con: cmake -DDECIMU_CINCEL_TESTS=ON y correr CincelEngineTest.exe.
 // Con `--screenshot ruta.png [match|piano|ms|dyn]` guarda una captura de la UI.
 
 #include "../Source/PluginProcessor.h"
@@ -47,22 +47,22 @@ namespace
         return v;
     }
 
-    void setParam(DecimulPrismaProcessor& p, const juce::String& id, float plain)
+    void setParam(DecimulCincelProcessor& p, const juce::String& id, float plain)
     {
         auto* param = p.apvts.getParameter(id);
         param->setValueNotifyingHost(param->convertTo0to1(plain));
     }
 
-    std::unique_ptr<DecimulPrismaProcessor> makeProcessor()
+    std::unique_ptr<DecimulCincelProcessor> makeProcessor()
     {
-        auto p = std::make_unique<DecimulPrismaProcessor>();
+        auto p = std::make_unique<DecimulCincelProcessor>();
         p->setRateAndBufferSizeDetails(sr, blockSize);
         p->prepareToPlay(sr, blockSize);
         return p;
     }
 
     /** Procesa L/R (y sidechain si se pasa) en bloques; el buffer lleva 4 canales si hay sidechain. */
-    void run(DecimulPrismaProcessor& p, std::vector<float>& l, std::vector<float>& r, const std::vector<float>* sc = nullptr)
+    void run(DecimulCincelProcessor& p, std::vector<float>& l, std::vector<float>& r, const std::vector<float>* sc = nullptr)
     {
         juce::MidiBuffer midi;
         const int chans = p.getTotalNumInputChannels();
@@ -90,11 +90,11 @@ namespace
         }
     }
 
-    prisma::BandParams bell(float f, float g, float q)
+    cincel::BandParams bell(float f, float g, float q)
     {
-        prisma::BandParams b;
+        cincel::BandParams b;
         b.used = true;
-        b.shape = prisma::Shape::Bell;
+        b.shape = cincel::Shape::Bell;
         b.freq = f;
         b.gainDb = g;
         b.q = q;
@@ -157,7 +157,7 @@ int main(int argc, char** argv)
         if (const auto shotSize = juce::SystemStats::getEnvironmentVariable("DECIMU_SHOT_SIZE", {}); shotSize.contains("x"))
             editor->setSize(shotSize.upToFirstOccurrenceOf("x", false, false).getIntValue(),
                             shotSize.fromFirstOccurrenceOf("x", false, false).getIntValue());
-        auto* ed = dynamic_cast<DecimulPrismaEditor*>(editor.get());
+        auto* ed = dynamic_cast<DecimulCincelEditor*>(editor.get());
         if (variant == "match")
             ed->openMatchPanel(true);
 
@@ -213,18 +213,18 @@ int main(int argc, char** argv)
     {
         auto p = makeProcessor();
         check(p->getLatencySamples() == 0, "Latencia cero: 0 muestras informadas");
-        setParam(*p, PrismaIDs::mode, 2.0f);
+        setParam(*p, CincelIDs::mode, 2.0f);
         pump(150);
         const int lp = p->getLatencySamples();
-        check(lp == prisma::lpLatency(2, sr), "Fase lineal (High): latencia informada", juce::String(lp) + " muestras");
-        setParam(*p, PrismaIDs::mode, 1.0f);
+        check(lp == cincel::lpLatency(2, sr), "Fase lineal (High): latencia informada", juce::String(lp) + " muestras");
+        setParam(*p, CincelIDs::mode, 1.0f);
         pump(150);
         check(p->getLatencySamples() == 64, "Fase natural: latencia informada", juce::String(p->getLatencySamples()) + " muestras");
 
         // Y el audio sale con esa demora exacta.
         std::vector<float> l((size_t) n, 0.0f), r((size_t) n, 0.0f);
         l[2000] = r[2000] = 1.0f;
-        setParam(*p, PrismaIDs::mode, 2.0f);
+        setParam(*p, CincelIDs::mode, 2.0f);
         pump(150);
         run(*p, l, r);   // el primer tramo funde al cambiar de modo
         std::fill(l.begin(), l.end(), 0.0f);
@@ -242,12 +242,12 @@ int main(int argc, char** argv)
     {
         auto p = makeProcessor();
         auto b = bell(3300.0f, -4.5f, 2.2f);
-        b.place = prisma::Placement::Side;
+        b.place = cincel::Placement::Side;
         b.dynamic = true;
         b.rangeDb = -3.0f;
         p->writeBand(5, b);
-        setParam(*p, PrismaIDs::mode, 1.0f);
-        setParam(*p, PrismaIDs::character, 2.0f);
+        setParam(*p, CincelIDs::mode, 1.0f);
+        setParam(*p, CincelIDs::character, 2.0f);
         p->uiState().setProperty("range", 3, nullptr);
         juce::MemoryBlock state;
         p->getStateInformation(state);
@@ -255,8 +255,8 @@ int main(int argc, char** argv)
         p2->setStateInformation(state.getData(), (int) state.getSize());
         const auto r = p2->readBand(5);
         check(r.used && std::abs(r.freq - 3300.0f) < 1.0f && std::abs(r.gainDb + 4.5f) < 0.02f && std::abs(r.q - 2.2f) < 0.01f
-                  && r.place == prisma::Placement::Side && r.dynamic && std::abs(r.rangeDb + 3.0f) < 0.02f
-                  && p2->globalValue(PrismaIDs::mode) > 0.5f && p2->globalValue(PrismaIDs::mode) < 1.5f
+                  && r.place == cincel::Placement::Side && r.dynamic && std::abs(r.rangeDb + 3.0f) < 0.02f
+                  && p2->globalValue(CincelIDs::mode) > 0.5f && p2->globalValue(CincelIDs::mode) < 1.5f
                   && (int) p2->uiState().getProperty("range", 0) == 3,
               "Estado: bandas, modo y ajustes de pantalla se guardan y se restauran");
     }
@@ -267,15 +267,15 @@ int main(int argc, char** argv)
         p->writeBand(10, bell(500.0f, 3.0f, 1.0f));
         p->loadFactoryPreset(1);
         int used = 0;
-        for (int i = 0; i < prisma::maxBands; ++i)
+        for (int i = 0; i < cincel::maxBands; ++i)
             used += p->readBand(i).used ? 1 : 0;
         check(used == 4 && !p->readBand(10).used && p->currentPresetName == "Vocal - presence and air",
               "Preset de fábrica: reemplaza las bandas", juce::String(used) + " bandas");
         // Guardar y volver a cargar un preset de usuario.
-        const auto f = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("prisma-test-preset.xml");
+        const auto f = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("cincel-test-preset.xml");
         check(p->saveUserPreset(f), "Preset de usuario: se guarda");
         p->resetAll(true);
-        check(p->loadPresetFile(f) && p->readBand(3).used && p->readBand(3).shape == prisma::Shape::HighShelf,
+        check(p->loadPresetFile(f) && p->readBand(3).used && p->readBand(3).shape == cincel::Shape::HighShelf,
               "Preset de usuario: se vuelve a cargar");
         f.deleteFile();
         check(p->factoryPresetNames().size() >= 10, "Hay presets de fábrica", juce::String(p->factoryPresetNames().size()));
@@ -313,7 +313,7 @@ int main(int argc, char** argv)
 
     // ---- Mono ----
     {
-        auto p = std::make_unique<DecimulPrismaProcessor>();
+        auto p = std::make_unique<DecimulCincelProcessor>();
         juce::AudioProcessor::BusesLayout layout;
         layout.inputBuses.add(juce::AudioChannelSet::mono());
         layout.inputBuses.add(juce::AudioChannelSet::disabled());
@@ -338,7 +338,7 @@ int main(int argc, char** argv)
 
     // ---- Sidechain ----
     {
-        auto p = std::make_unique<DecimulPrismaProcessor>();
+        auto p = std::make_unique<DecimulCincelProcessor>();
         juce::AudioProcessor::BusesLayout layout;
         layout.inputBuses.add(juce::AudioChannelSet::stereo());
         layout.inputBuses.add(juce::AudioChannelSet::stereo());
@@ -363,7 +363,7 @@ int main(int argc, char** argv)
     {
         auto p = makeProcessor();
         std::unique_ptr<juce::AudioProcessorEditor> editor(p->createEditor());
-        auto* ed = dynamic_cast<DecimulPrismaEditor*>(editor.get());
+        auto* ed = dynamic_cast<DecimulCincelEditor*>(editor.get());
         auto& d = ed->getDisplay();
         d.resized();
         auto src = juce::Desktop::getInstance().getMainMouseSource();
@@ -381,7 +381,7 @@ int main(int argc, char** argv)
         d.mouseDoubleClick(ev(at, left, 2, false, at));
         d.refresh();
         auto b = p->readBand(0);
-        check(b.used && b.shape == prisma::Shape::Bell && std::abs(std::log2(b.freq / 1000.0)) < 0.05 && std::abs(b.gainDb - 6.0f) < 0.3f
+        check(b.used && b.shape == cincel::Shape::Bell && std::abs(std::log2(b.freq / 1000.0)) < 0.05 && std::abs(b.gainDb - 6.0f) < 0.3f
                   && d.getPrimary() == 0,
               "Mouse: doble clic crea una campana donde se hizo clic", juce::String(b.freq, 0) + " Hz, " + juce::String(b.gainDb, 2) + " dB");
 
@@ -413,7 +413,7 @@ int main(int argc, char** argv)
         const auto edge = d.pointFor(12.0, 0.0);
         d.mouseDoubleClick(ev(edge, left, 2, false, edge));
         d.refresh();
-        check(p->readBand(1).used && p->readBand(1).shape == prisma::Shape::LowCut, "Mouse: doble clic en el borde crea un corte");
+        check(p->readBand(1).used && p->readBand(1).shape == cincel::Shape::LowCut, "Mouse: doble clic en el borde crea un corte");
 
         // Supr borra la banda elegida.
         d.keyPressed(juce::KeyPress(juce::KeyPress::deleteKey));
@@ -437,7 +437,7 @@ int main(int argc, char** argv)
         }
         d.mouseUp(ev(d.pointFor(12000.0, 0.0), none, 1, true, s0));
         int used = 0;
-        for (int i = 0; i < prisma::maxBands; ++i)
+        for (int i = 0; i < cincel::maxBands; ++i)
             used += p->readBand(i).used ? 1 : 0;
         check(used >= 2 && used <= 12, "Sketch: el trazo se convierte en bandas", juce::String(used) + " bandas");
     }

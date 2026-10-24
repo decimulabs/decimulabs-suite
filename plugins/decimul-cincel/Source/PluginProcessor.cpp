@@ -2,9 +2,9 @@
 #include "PluginEditor.h"
 #include <cmath>
 
-using prisma::BandParams;
-using prisma::Placement;
-using prisma::Shape;
+using cincel::BandParams;
+using cincel::Placement;
+using cincel::Shape;
 
 namespace
 {
@@ -19,25 +19,25 @@ namespace
                  [](float s, float e, float x) { return juce::jlimit(s, e, x); } };
     }
 
-    const char* bandKeyNames[PrismaIDs::numBandKeys] = { "used", "on", "freq", "gain", "q", "shape", "slope",
+    const char* bandKeyNames[CincelIDs::numBandKeys] = { "used", "on", "freq", "gain", "q", "shape", "slope",
                                                          "place", "dyn", "range", "thr", "auto", "sc", "spec" };
 }
 
-juce::String PrismaIDs::band(int index, BandKey key)
+juce::String CincelIDs::band(int index, BandKey key)
 {
     return "b" + juce::String(index + 1) + "_" + bandKeyNames[key];
 }
 
 //==============================================================================
-DecimulPrismaProcessor::DecimulPrismaProcessor()
+DecimulCincelProcessor::DecimulCincelProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
                          .withInput("Sidechain", juce::AudioChannelSet::stereo(), false)
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, &undoManager, "PARAMETERS", createParameterLayout())
 {
-    using namespace PrismaIDs;
-    for (int i = 0; i < prisma::maxBands; ++i)
+    using namespace CincelIDs;
+    for (int i = 0; i < cincel::maxBands; ++i)
         for (int k = 0; k < numBandKeys; ++k)
             bandRaw[(size_t) i][(size_t) k] = apvts.getRawParameterValue(band(i, (BandKey) k));
     rawMode = apvts.getRawParameterValue(mode);
@@ -60,17 +60,17 @@ DecimulPrismaProcessor::DecimulPrismaProcessor()
     startTimerHz(30);
 }
 
-DecimulPrismaProcessor::~DecimulPrismaProcessor()
+DecimulCincelProcessor::~DecimulCincelProcessor()
 {
     stopTimer();
     InstanceRegistry::get().remove(instanceId);
     engine.release();
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout DecimulPrismaProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout DecimulCincelProcessor::createParameterLayout()
 {
     using namespace juce;
-    using namespace PrismaIDs;
+    using namespace CincelIDs;
     std::vector<std::unique_ptr<RangedAudioParameter>> params;
 
     const StringArray shapes { "Bell", "Low Shelf", "Low Cut", "High Shelf", "High Cut", "Notch", "Band Pass", "Tilt Shelf", "Flat Tilt" };
@@ -80,7 +80,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulPrismaProcessor::crea
     auto db = AudioParameterFloatAttributes().withLabel("dB");
     auto ms = AudioParameterFloatAttributes().withLabel("ms");
 
-    for (int i = 0; i < prisma::maxBands; ++i)
+    for (int i = 0; i < cincel::maxBands; ++i)
     {
         const String n = "Band " + String(i + 1) + " ";
         const float defFreq = (float) (40.0 * std::pow(2.0, i * 0.4));
@@ -123,7 +123,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout DecimulPrismaProcessor::crea
     return { params.begin(), params.end() };
 }
 
-bool DecimulPrismaProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+bool DecimulCincelProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     const auto out = layouts.getMainOutputChannelSet();
     if (out != juce::AudioChannelSet::stereo() && out != juce::AudioChannelSet::mono())
@@ -140,7 +140,7 @@ bool DecimulPrismaProcessor::isBusesLayoutSupported(const BusesLayout& layouts) 
     return true;
 }
 
-void DecimulPrismaProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+void DecimulCincelProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentRate = sampleRate;
     stereoLayout = getMainBusNumOutputChannels() >= 2;
@@ -155,15 +155,15 @@ void DecimulPrismaProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     setLatencySamples(reportedLatency);
 }
 
-void DecimulPrismaProcessor::releaseResources()
+void DecimulCincelProcessor::releaseResources()
 {
     engine.release();
 }
 
-void DecimulPrismaProcessor::fillBands(std::array<BandParams, prisma::maxBands>& out) const
+void DecimulCincelProcessor::fillBands(std::array<BandParams, cincel::maxBands>& out) const
 {
-    using namespace PrismaIDs;
-    for (int i = 0; i < prisma::maxBands; ++i)
+    using namespace CincelIDs;
+    for (int i = 0; i < cincel::maxBands; ++i)
     {
         const auto& r = bandRaw[(size_t) i];
         auto& b = out[(size_t) i];
@@ -172,9 +172,9 @@ void DecimulPrismaProcessor::fillBands(std::array<BandParams, prisma::maxBands>&
         b.freq = r[freq]->load();
         b.gainDb = r[gain]->load();
         b.q = r[q]->load();
-        b.shape = (Shape) juce::jlimit(0, prisma::numShapes - 1, (int) std::lround(r[shape]->load()));
-        b.slope = juce::jlimit(0, prisma::numSlopes - 1, (int) std::lround(r[slope]->load()));
-        b.place = (Placement) juce::jlimit(0, prisma::numPlacements - 1, (int) std::lround(r[place]->load()));
+        b.shape = (Shape) juce::jlimit(0, cincel::numShapes - 1, (int) std::lround(r[shape]->load()));
+        b.slope = juce::jlimit(0, cincel::numSlopes - 1, (int) std::lround(r[slope]->load()));
+        b.place = (Placement) juce::jlimit(0, cincel::numPlacements - 1, (int) std::lround(r[place]->load()));
         b.dynamic = r[dyn]->load() > 0.5f;
         b.rangeDb = r[range]->load();
         b.thresholdDb = r[thr]->load();
@@ -184,11 +184,11 @@ void DecimulPrismaProcessor::fillBands(std::array<BandParams, prisma::maxBands>&
     }
 }
 
-void DecimulPrismaProcessor::fillGlobals(prisma::GlobalParams& g) const
+void DecimulCincelProcessor::fillGlobals(cincel::GlobalParams& g) const
 {
-    g.mode = (prisma::Mode) juce::jlimit(0, 2, (int) std::lround(rawMode->load()));
-    g.lpResolution = juce::jlimit(0, prisma::numLpResolutions - 1, (int) std::lround(rawLpRes->load()));
-    g.character = (prisma::Character) juce::jlimit(0, 2, (int) std::lround(rawCharacter->load()));
+    g.mode = (cincel::Mode) juce::jlimit(0, 2, (int) std::lround(rawMode->load()));
+    g.lpResolution = juce::jlimit(0, cincel::numLpResolutions - 1, (int) std::lround(rawLpRes->load()));
+    g.character = (cincel::Character) juce::jlimit(0, 2, (int) std::lround(rawCharacter->load()));
     g.gainScale = rawGainScale->load() * 0.01;
     g.autoGain = rawAutoGain->load() > 0.5f;
     g.gainQ = rawGainQ->load() > 0.5f;
@@ -201,7 +201,7 @@ void DecimulPrismaProcessor::fillGlobals(prisma::GlobalParams& g) const
     g.soloBand = soloBand.load();
 }
 
-void DecimulPrismaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void DecimulCincelProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
@@ -239,7 +239,7 @@ void DecimulPrismaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     }
 
     fillBands(audioBands);
-    prisma::GlobalParams g;
+    cincel::GlobalParams g;
     fillGlobals(g);
     engine.process(L, R, scL, scR, n, audioBands.data(), g);
 
@@ -248,19 +248,19 @@ void DecimulPrismaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     outPeakR.store(juce::Decibels::gainToDecibels(main.getMagnitude(R != nullptr ? 1 : 0, 0, n), -100.0f));
 }
 
-int DecimulPrismaProcessor::predictedLatency() const
+int DecimulCincelProcessor::predictedLatency() const
 {
-    std::array<BandParams, prisma::maxBands> b;
+    std::array<BandParams, cincel::maxBands> b;
     fillBands(b);
     bool spectral = false;
     for (const auto& x : b)
-        spectral = spectral || prisma::usesSpectral(x);
-    const auto m = (prisma::Mode) juce::jlimit(0, 2, (int) std::lround(rawMode->load()));
-    const int res = juce::jlimit(0, prisma::numLpResolutions - 1, (int) std::lround(rawLpRes->load()));
+        spectral = spectral || cincel::usesSpectral(x);
+    const auto m = (cincel::Mode) juce::jlimit(0, 2, (int) std::lround(rawMode->load()));
+    const int res = juce::jlimit(0, cincel::numLpResolutions - 1, (int) std::lround(rawLpRes->load()));
     return engine.latencyFor(m, res, spectral);
 }
 
-void DecimulPrismaProcessor::timerCallback()
+void DecimulCincelProcessor::timerCallback()
 {
     const int lat = predictedLatency();
     if (lat != reportedLatency)
@@ -282,12 +282,12 @@ void DecimulPrismaProcessor::timerCallback()
     postAnalyzer.update(res, speed, freeze);
     scAnalyzer.update(res, speed, freeze);
 
-    std::array<BandParams, prisma::maxBands> b;
+    std::array<BandParams, cincel::maxBands> b;
     readAllBands(b);
-    const double scale = globalValue(PrismaIDs::gainScale) * 0.01;
-    const bool gq = globalValue(PrismaIDs::gainQ) > 0.5f;
+    const double scale = globalValue(CincelIDs::gainScale) * 0.01;
+    const bool gq = globalValue(CincelIDs::gainQ) > 0.5f;
     bool changed = !curveValid || scale != curveScale || gq != curveGainQ;
-    for (int i = 0; i < prisma::maxBands && !changed; ++i)
+    for (int i = 0; i < cincel::maxBands && !changed; ++i)
     {
         const auto& x = b[(size_t) i];
         const auto& y = curveBands[(size_t) i];
@@ -296,7 +296,7 @@ void DecimulPrismaProcessor::timerCallback()
     }
     if (changed)
     {
-        curves::total(b.data(), scale, gq, globalValue(PrismaIDs::mode) > 1.5f, totalCurve);
+        curves::total(b.data(), scale, gq, globalValue(CincelIDs::mode) > 1.5f, totalCurve);
         curveBands = b;
         curveScale = scale;
         curveGainQ = gq;
@@ -307,26 +307,26 @@ void DecimulPrismaProcessor::timerCallback()
 }
 
 //==============================================================================
-juce::RangedAudioParameter* DecimulPrismaProcessor::bandParam(int index, PrismaIDs::BandKey key) const
+juce::RangedAudioParameter* DecimulCincelProcessor::bandParam(int index, CincelIDs::BandKey key) const
 {
-    return apvts.getParameter(PrismaIDs::band(index, key));
+    return apvts.getParameter(CincelIDs::band(index, key));
 }
 
-BandParams DecimulPrismaProcessor::readBand(int index) const
+BandParams DecimulCincelProcessor::readBand(int index) const
 {
-    std::array<BandParams, prisma::maxBands> all;
+    std::array<BandParams, cincel::maxBands> all;
     fillBands(all);
-    return all[(size_t) juce::jlimit(0, prisma::maxBands - 1, index)];
+    return all[(size_t) juce::jlimit(0, cincel::maxBands - 1, index)];
 }
 
-void DecimulPrismaProcessor::readAllBands(std::array<BandParams, prisma::maxBands>& out) const
+void DecimulCincelProcessor::readAllBands(std::array<BandParams, cincel::maxBands>& out) const
 {
     fillBands(out);
 }
 
-void DecimulPrismaProcessor::writeBand(int index, const BandParams& b)
+void DecimulCincelProcessor::writeBand(int index, const BandParams& b)
 {
-    using namespace PrismaIDs;
+    using namespace CincelIDs;
     auto set = [&](BandKey key, float plain)
     {
         auto* p = bandParam(index, key);
@@ -353,15 +353,15 @@ void DecimulPrismaProcessor::writeBand(int index, const BandParams& b)
     set(used, b.used ? 1.0f : 0.0f);
 }
 
-int DecimulPrismaProcessor::firstFreeBand() const
+int DecimulCincelProcessor::firstFreeBand() const
 {
-    for (int i = 0; i < prisma::maxBands; ++i)
-        if (bandRaw[(size_t) i][PrismaIDs::used]->load() < 0.5f)
+    for (int i = 0; i < cincel::maxBands; ++i)
+        if (bandRaw[(size_t) i][CincelIDs::used]->load() < 0.5f)
             return i;
     return -1;
 }
 
-void DecimulPrismaProcessor::setGlobal(const juce::String& id, float plainValue)
+void DecimulCincelProcessor::setGlobal(const juce::String& id, float plainValue)
 {
     auto* p = apvts.getParameter(id);
     p->beginChangeGesture();
@@ -369,23 +369,23 @@ void DecimulPrismaProcessor::setGlobal(const juce::String& id, float plainValue)
     p->endChangeGesture();
 }
 
-juce::ValueTree DecimulPrismaProcessor::uiState()
+juce::ValueTree DecimulCincelProcessor::uiState()
 {
     return apvts.state.getOrCreateChildWithName("UI", nullptr);
 }
 
-void DecimulPrismaProcessor::resetAll(bool globalsToo)
+void DecimulCincelProcessor::resetAll(bool globalsToo)
 {
-    for (int i = 0; i < prisma::maxBands; ++i)
+    for (int i = 0; i < cincel::maxBands; ++i)
     {
         BandParams b;
-        b.freq = bandParam(i, PrismaIDs::freq)->convertFrom0to1(bandParam(i, PrismaIDs::freq)->getDefaultValue());
+        b.freq = bandParam(i, CincelIDs::freq)->convertFrom0to1(bandParam(i, CincelIDs::freq)->getDefaultValue());
         writeBand(i, b);
     }
     if (globalsToo)
-        for (const auto* id : { &PrismaIDs::mode, &PrismaIDs::lpRes, &PrismaIDs::character, &PrismaIDs::gainScale,
-                                &PrismaIDs::autoGain, &PrismaIDs::gainQ, &PrismaIDs::attack, &PrismaIDs::release,
-                                &PrismaIDs::output, &PrismaIDs::pan, &PrismaIDs::phase })
+        for (const auto* id : { &CincelIDs::mode, &CincelIDs::lpRes, &CincelIDs::character, &CincelIDs::gainScale,
+                                &CincelIDs::autoGain, &CincelIDs::gainQ, &CincelIDs::attack, &CincelIDs::release,
+                                &CincelIDs::output, &CincelIDs::pan, &CincelIDs::phase })
         {
             auto* p = apvts.getParameter(*id);
             p->beginChangeGesture();
@@ -454,7 +454,7 @@ namespace
     }
 }
 
-juce::StringArray DecimulPrismaProcessor::factoryPresetNames() const
+juce::StringArray DecimulCincelProcessor::factoryPresetNames() const
 {
     juce::StringArray names;
     for (const auto& p : factoryPresets())
@@ -462,7 +462,7 @@ juce::StringArray DecimulPrismaProcessor::factoryPresetNames() const
     return names;
 }
 
-void DecimulPrismaProcessor::loadFactoryPreset(int index)
+void DecimulCincelProcessor::loadFactoryPreset(int index)
 {
     const auto& all = factoryPresets();
     if (index < 0 || index >= (int) all.size())
@@ -470,7 +470,7 @@ void DecimulPrismaProcessor::loadFactoryPreset(int index)
     const auto& p = all[(size_t) index];
     undoManager.beginNewTransaction("Preset");
     resetAll(true);
-    setGlobal(PrismaIDs::mode, (float) p.mode);
+    setGlobal(CincelIDs::mode, (float) p.mode);
     int i = 0;
     for (const auto& pb : p.bands)
     {
@@ -491,14 +491,14 @@ void DecimulPrismaProcessor::loadFactoryPreset(int index)
     currentPresetName = p.name;
 }
 
-juce::File DecimulPrismaProcessor::userPresetFolder() const
+juce::File DecimulCincelProcessor::userPresetFolder() const
 {
-    auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("decimulabs").getChildFile("Prisma Presets");
+    auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("decimulabs").getChildFile("Cincel Presets");
     dir.createDirectory();
     return dir;
 }
 
-bool DecimulPrismaProcessor::saveUserPreset(const juce::File& file)
+bool DecimulCincelProcessor::saveUserPreset(const juce::File& file)
 {
     auto state = apvts.copyState();
     if (auto ui = state.getChildWithName("UI"); ui.isValid())
@@ -512,7 +512,7 @@ bool DecimulPrismaProcessor::saveUserPreset(const juce::File& file)
     return false;
 }
 
-bool DecimulPrismaProcessor::loadPresetFile(const juce::File& file)
+bool DecimulCincelProcessor::loadPresetFile(const juce::File& file)
 {
     auto xml = juce::XmlDocument::parse(file);
     if (xml == nullptr || !xml->hasTagName(apvts.state.getType()))
@@ -526,7 +526,7 @@ bool DecimulPrismaProcessor::loadPresetFile(const juce::File& file)
     return true;
 }
 
-void DecimulPrismaProcessor::switchAB()
+void DecimulCincelProcessor::switchAB()
 {
     abStates[abSlot] = apvts.copyState();
     abSlot ^= 1;
@@ -540,18 +540,18 @@ void DecimulPrismaProcessor::switchAB()
     }
 }
 
-void DecimulPrismaProcessor::copyCurrentToOther()
+void DecimulCincelProcessor::copyCurrentToOther()
 {
     abStates[abSlot ^ 1] = apvts.copyState();
 }
 
 //==============================================================================
-juce::AudioProcessorEditor* DecimulPrismaProcessor::createEditor()
+juce::AudioProcessorEditor* DecimulCincelProcessor::createEditor()
 {
-    return new DecimulPrismaEditor(*this);
+    return new DecimulCincelEditor(*this);
 }
 
-void DecimulPrismaProcessor::getStateInformation(juce::MemoryBlock& destData)
+void DecimulCincelProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
     state.setProperty("preset", currentPresetName, nullptr);
@@ -559,7 +559,7 @@ void DecimulPrismaProcessor::getStateInformation(juce::MemoryBlock& destData)
         copyXmlToBinary(*xml, destData);
 }
 
-void DecimulPrismaProcessor::setStateInformation(const void* data, int sizeInBytes)
+void DecimulCincelProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
         if (xml->hasTagName(apvts.state.getType()))
@@ -570,7 +570,7 @@ void DecimulPrismaProcessor::setStateInformation(const void* data, int sizeInByt
         }
 }
 
-void DecimulPrismaProcessor::updateTrackProperties(const TrackProperties& properties)
+void DecimulCincelProcessor::updateTrackProperties(const TrackProperties& properties)
 {
     if (properties.name.isNotEmpty())
         trackName = properties.name;
@@ -578,5 +578,5 @@ void DecimulPrismaProcessor::updateTrackProperties(const TrackProperties& proper
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new DecimulPrismaProcessor();
+    return new DecimulCincelProcessor();
 }

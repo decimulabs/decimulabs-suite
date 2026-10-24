@@ -1,9 +1,9 @@
 #include "EqDisplay.h"
-#include "dsp/PrismaFit.h"
+#include "dsp/CincelFit.h"
 
-using prisma::BandParams;
-using prisma::Placement;
-using prisma::Shape;
+using cincel::BandParams;
+using cincel::Placement;
+using cincel::Shape;
 
 namespace
 {
@@ -22,7 +22,7 @@ namespace
     const char* placeNameEs[] = { "Estéreo", "Izquierda", "Derecha", "Centro (Mid)", "Lados (Side)" };
 }
 
-EqDisplay::EqDisplay(DecimulPrismaProcessor& p) : proc(p)
+EqDisplay::EqDisplay(DecimulCincelProcessor& p) : proc(p)
 {
     setWantsKeyboardFocus(true);
     setMouseClickGrabsKeyboardFocus(true);
@@ -112,7 +112,7 @@ float EqDisplay::yForAnalyzer(double db, double hz) const
 double EqDisplay::displayedGain(int i) const
 {
     const auto& b = bands[(size_t) i];
-    if (!prisma::shapeHasGain(b.shape))
+    if (!cincel::shapeHasGain(b.shape))
         return 0.0;
     const double g = b.gainDb * gainScale;
     return (b.shape == Shape::TiltShelf || b.shape == Shape::FlatTilt) ? 0.5 * g : g;
@@ -128,7 +128,7 @@ int EqDisplay::hitBand(juce::Point<float> p) const
 {
     int best = -1;
     float bestD = 11.0f;
-    for (int i = 0; i < prisma::maxBands; ++i)
+    for (int i = 0; i < cincel::maxBands; ++i)
     {
         if (!bands[(size_t) i].used)
             continue;
@@ -149,7 +149,7 @@ int EqDisplay::hitRangeHandle(juce::Point<float> p) const
     for (int i : selection)
     {
         const auto& b = bands[(size_t) i];
-        if (!prisma::usesDynamics(b))
+        if (!cincel::usesDynamics(b))
             continue;
         const auto dot = dotPosition(i);
         const float y = yForDb(displayedGain(i) + b.rangeDb * gainScale);
@@ -186,9 +186,9 @@ int EqDisplay::findSpectrumPeak(juce::Point<float> p) const
 void EqDisplay::refresh()
 {
     proc.readAllBands(bands);
-    gainScale = proc.globalValue(PrismaIDs::gainScale) * 0.01;
-    gainQ = proc.globalValue(PrismaIDs::gainQ) > 0.5f;
-    linearPhase = proc.globalValue(PrismaIDs::mode) > 1.5f;
+    gainScale = proc.globalValue(CincelIDs::gainScale) * 0.01;
+    gainQ = proc.globalValue(CincelIDs::gainQ) > 0.5f;
+    linearPhase = proc.globalValue(CincelIDs::mode) > 1.5f;
     const auto& tel = proc.dynamicsTelemetry();
 
     mainCurve.fill(0.0f);
@@ -197,10 +197,10 @@ void EqDisplay::refresh()
     sideCurve.fill(0.0f);
     anyLR = anySide = false;
 
-    for (int i = 0; i < prisma::maxBands; ++i)
+    for (int i = 0; i < cincel::maxBands; ++i)
     {
         const auto& b = bands[(size_t) i];
-        dynOffset[(size_t) i] = prisma::usesDynamics(b) ? tel.offsetDb[(size_t) i].load() : 0.0f;
+        dynOffset[(size_t) i] = cincel::usesDynamics(b) ? tel.offsetDb[(size_t) i].load() : 0.0f;
         if (!b.used)
             continue;
         const auto& k = curveKey[(size_t) i];
@@ -480,7 +480,7 @@ void EqDisplay::paintCollisions(juce::Graphics& g)
 void EqDisplay::paintCurves(juce::Graphics& g)
 {
     const float zeroY = yForDb(0.0);
-    for (int i = 0; i < prisma::maxBands; ++i)
+    for (int i = 0; i < cincel::maxBands; ++i)
     {
         const auto& b = bands[(size_t) i];
         if (!b.used)
@@ -500,7 +500,7 @@ void EqDisplay::paintCurves(juce::Graphics& g)
             g.setColour(col.withAlpha(0.8f));
             g.strokePath(path, juce::PathStrokeType(1.2f));
         }
-        if (prisma::usesDynamics(b) && std::abs(dynOffset[(size_t) i]) > 0.01f)
+        if (cincel::usesDynamics(b) && std::abs(dynOffset[(size_t) i]) > 0.01f)
         {
             // La curva quieta, punteada, para ver cuánto se movió la dinámica.
             juce::Path dashed;
@@ -546,7 +546,7 @@ void EqDisplay::paintCurves(juce::Graphics& g)
 
 void EqDisplay::paintDots(juce::Graphics& g)
 {
-    for (int i = 0; i < prisma::maxBands; ++i)
+    for (int i = 0; i < cincel::maxBands; ++i)
     {
         const auto& b = bands[(size_t) i];
         if (!b.used)
@@ -556,7 +556,7 @@ void EqDisplay::paintDots(juce::Graphics& g)
         const auto c = dotPosition(i);
 
         // Rango dinámico: barra desde la ganancia hasta donde puede llegar, con su manija.
-        if (prisma::usesDynamics(b))
+        if (cincel::usesDynamics(b))
         {
             const float yEnd = yForDb(displayedGain(i) + b.rangeDb * gainScale);
             const float yNow = yForDb(displayedGain(i) + dynOffset[(size_t) i]);
@@ -617,15 +617,15 @@ void EqDisplay::paintReadout(juce::Graphics& g, int i)
     const auto c = dotPosition(i);
     juce::StringArray lines;
     lines.add(juce::String(i + 1) + "  " + juce::String(juce::CharPointer_UTF8(spanish ? shapeNameEs[(int) b.shape] : shapeNameEn[(int) b.shape]))
-              + (prisma::shapeHasSlope(b.shape) ? juce::String("  ") + slopeName[b.slope] : juce::String()));
+              + (cincel::shapeHasSlope(b.shape) ? juce::String("  ") + slopeName[b.slope] : juce::String()));
     lines.add(formatHz(b.freq) + "   " + noteName(b.freq));
     juce::String third;
-    if (prisma::shapeHasGain(b.shape))
+    if (cincel::shapeHasGain(b.shape))
         third << (b.gainDb > 0 ? "+" : "") << juce::String(b.gainDb * gainScale, 1) << " dB   ";
-    if (prisma::shapeHasQ(b.shape))
+    if (cincel::shapeHasQ(b.shape))
         third << "Q " << juce::String(b.q, 2);
     lines.add(third);
-    if (prisma::usesDynamics(b))
+    if (cincel::usesDynamics(b))
         lines.add(tr(spanish, "Dyn ", "Din ") + juce::String(dynOffset[(size_t) i], 1) + " / " + juce::String(b.rangeDb * gainScale, 1) + " dB");
     if (!b.enabled)
         lines.add(tr(spanish, "(off)", "(apagada)"));
@@ -823,7 +823,7 @@ void EqDisplay::mouseDrag(const juce::MouseEvent& e)
     {
         lasso = juce::Rectangle<float>(dragStart, e.position);
         std::vector<int> inside;
-        for (int i = 0; i < prisma::maxBands; ++i)
+        for (int i = 0; i < cincel::maxBands; ++i)
             if (bands[(size_t) i].used && lasso.contains(dotPosition(i)))
                 inside.push_back(i);
         if (inside != selection)
@@ -859,7 +859,7 @@ void EqDisplay::mouseDrag(const juce::MouseEvent& e)
         {
             auto b = bands[(size_t) s.band];
             b.freq = (float) juce::jlimit(10.0, 30000.0, s.freq * std::pow(2.0, dOct));
-            if (prisma::shapeHasGain(b.shape))
+            if (cincel::shapeHasGain(b.shape))
             {
                 const double k = (b.shape == Shape::TiltShelf || b.shape == Shape::FlatTilt) ? 2.0 : 1.0;
                 b.gainDb = (float) juce::jlimit(-30.0, 30.0, s.gain + k * dDb / scale);
@@ -947,7 +947,7 @@ bool EqDisplay::keyPressed(const juce::KeyPress& key)
     if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'A')
     {
         selection.clear();
-        for (int i = 0; i < prisma::maxBands; ++i)
+        for (int i = 0; i < cincel::maxBands; ++i)
             if (bands[(size_t) i].used)
                 selection.push_back(i);
         primary = selection.empty() ? -1 : selection.front();
@@ -1021,7 +1021,7 @@ void EqDisplay::finishSketch()
         return;
     }
     std::sort(sketch.begin(), sketch.end(), [](auto a, auto b) { return a.x < b.x; });
-    prisma::FitGrid grid;
+    cincel::FitGrid grid;
     grid.build(200);
     const double hzLo = hzForX(sketch.front().x), hzHi = hzForX(sketch.back().x);
     for (int i = 0; i < grid.size(); ++i)
@@ -1041,9 +1041,9 @@ void EqDisplay::finishSketch()
         const float t = b.x > a.x ? juce::jlimit(0.0f, 1.0f, (x - a.x) / (b.x - a.x)) : 0.0f;
         grid.target[(size_t) i] = dbForY(a.y + t * (b.y - a.y));
     }
-    grid.target = prisma::smoothOctave(grid.hz, grid.target, 1.0 / 6.0);
+    grid.target = cincel::smoothOctave(grid.hz, grid.target, 1.0 / 6.0);
     // Un trazo a mano tiene temblores: se ignoran desvíos de menos de 1 dB.
-    const auto fitted = prisma::fitBandsToCurve(grid, 10, 1.0);
+    const auto fitted = cincel::fitBandsToCurve(grid, 10, 1.0);
 
     proc.undoManager.beginNewTransaction("Sketch");
     proc.resetAll(false);
@@ -1066,25 +1066,25 @@ void EqDisplay::showBandMenu(int band)
     const auto b = bands[(size_t) band];
     const bool es = spanish;
     juce::PopupMenu m, shapes, slopes, places;
-    for (int s = 0; s < prisma::numShapes; ++s)
+    for (int s = 0; s < cincel::numShapes; ++s)
         shapes.addItem(100 + s, juce::String(juce::CharPointer_UTF8(es ? shapeNameEs[s] : shapeNameEn[s])), true, (int) b.shape == s);
-    for (int s = 0; s < prisma::numSlopes; ++s)
+    for (int s = 0; s < cincel::numSlopes; ++s)
         slopes.addItem(200 + s, slopeName[s], true, b.slope == s);
-    for (int s = 0; s < prisma::numPlacements; ++s)
+    for (int s = 0; s < cincel::numPlacements; ++s)
         places.addItem(300 + s, juce::String(juce::CharPointer_UTF8(es ? placeNameEs[s] : placeNameEn[s])), true, (int) b.place == s);
 
     m.addSectionHeader(tr(es, "Band ", "Banda ") + juce::String(band + 1));
     m.addSubMenu(tr(es, "Shape", "Forma"), shapes);
-    m.addSubMenu(tr(es, "Slope", "Pendiente"), slopes, prisma::shapeHasSlope(b.shape));
+    m.addSubMenu(tr(es, "Slope", "Pendiente"), slopes, cincel::shapeHasSlope(b.shape));
     m.addSubMenu(tr(es, "Stereo placement", "Ubicación estéreo"), places);
     m.addSeparator();
-    m.addItem(1, tr(es, "Dynamic EQ", "EQ dinámico"), prisma::shapeHasGain(b.shape), b.dynamic);
-    m.addItem(2, tr(es, "Spectral dynamics", "Dinámica espectral"), prisma::shapeHasGain(b.shape) && b.dynamic, b.spectral);
+    m.addItem(1, tr(es, "Dynamic EQ", "EQ dinámico"), cincel::shapeHasGain(b.shape), b.dynamic);
+    m.addItem(2, tr(es, "Spectral dynamics", "Dinámica espectral"), cincel::shapeHasGain(b.shape) && b.dynamic, b.spectral);
     m.addItem(3, tr(es, "Listen to external sidechain", "Escuchar el sidechain externo"), b.dynamic, b.sidechain);
     m.addSeparator();
     m.addItem(4, tr(es, "Solo (listen to this band)", "Solo (escuchar esta banda)"), true, proc.soloBand.load() == band);
     m.addItem(5, tr(es, "Enabled", "Prendida"), true, b.enabled);
-    m.addItem(6, tr(es, "Reset gain to 0 dB", "Ganancia a 0 dB"), prisma::shapeHasGain(b.shape));
+    m.addItem(6, tr(es, "Reset gain to 0 dB", "Ganancia a 0 dB"), cincel::shapeHasGain(b.shape));
     m.addItem(7, tr(es, "Delete", "Borrar"));
 
     juce::Component::SafePointer<EqDisplay> safe(this);
@@ -1095,9 +1095,9 @@ void EqDisplay::showBandMenu(int band)
         auto& self = *safe;
         self.proc.undoManager.beginNewTransaction();
         auto b = self.bands[(size_t) band];
-        if (r >= 100 && r < 100 + prisma::numShapes) b.shape = (Shape) (r - 100);
-        else if (r >= 200 && r < 200 + prisma::numSlopes) b.slope = r - 200;
-        else if (r >= 300 && r < 300 + prisma::numPlacements) b.place = (Placement) (r - 300);
+        if (r >= 100 && r < 100 + cincel::numShapes) b.shape = (Shape) (r - 100);
+        else if (r >= 200 && r < 200 + cincel::numSlopes) b.slope = r - 200;
+        else if (r >= 300 && r < 300 + cincel::numPlacements) b.place = (Placement) (r - 300);
         else if (r == 1) b.dynamic = !b.dynamic;
         else if (r == 2) b.spectral = !b.spectral;
         else if (r == 3) b.sidechain = !b.sidechain;

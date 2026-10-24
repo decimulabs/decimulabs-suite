@@ -1,8 +1,8 @@
-# DecimuLabs Prisma (nombre de trabajo)
+# DecimuLabs Cincel EQ
 
 EQ paramétrico de 24 bandas en la línea del FabFilter Pro-Q (3 y 4). VST3 + Standalone, Windows.
 Pedido de Marcelo (24/10/2026): "el clon del Pro-Q completo, con filtros para aislar las bandas y
-todo lo que el Pro-Q tiene". El nombre lo elige Marcelo; "Prisma" es de trabajo.
+todo lo que el Pro-Q tiene". Nombre elegido por Marcelo el 24/10/2026.
 
 ## Qué hace
 
@@ -38,17 +38,17 @@ retener picos, congelar), spectrum grab (agarrar un pico crea una banda ahí), z
 teclado de piano, curvas por canal (L/R/S punteadas), dinámica en vivo, lectura con nota musical.
 Selección múltiple (arrastre, Shift+clic, Ctrl+A) con edición relativa desde el panel.
 
-**Herramientas**: EQ Match (contra el sidechain u otra pista con Prisma), EQ Sketch (se dibuja la
+**Herramientas**: EQ Match (contra el sidechain u otra pista con Cincel), EQ Sketch (se dibuja la
 curva y se arman las bandas), lista de instancias con detección de choques (rojo donde dos pistas
 suenan fuerte en las mismas frecuencias), presets de fábrica y de usuario
-(Documentos/decimulabs/Prisma Presets), A/B, deshacer/rehacer.
+(Documentos/decimulabs/Cincel Presets), A/B, deshacer/rehacer.
 
 ## Archivos
 
-- `Source/dsp/` — motor en C++ puro (sin JUCE): `PrismaFilters.h` (diseño), `PrismaIir.h`
-  (latencia cero + dinámica), `PrismaOversampler.h` (fase natural), `PrismaLinear.h` (fase
-  lineal), `PrismaSpectral.h`, `PrismaEngine.h` (todo junto), `PrismaFit.h` (Match/Sketch),
-  `PrismaFft.h`.
+- `Source/dsp/` — motor en C++ puro (sin JUCE): `CincelFilters.h` (diseño), `CincelIir.h`
+  (latencia cero + dinámica), `CincelOversampler.h` (fase natural), `CincelLinear.h` (fase
+  lineal), `CincelSpectral.h`, `CincelEngine.h` (todo junto), `CincelFit.h` (Match/Sketch),
+  `CincelFft.h`.
 - `Source/PluginProcessor.*` parámetros (14 por banda + 12 globales), estado, presets, A/B.
 - `Source/EqDisplay.*` la pantalla; `BandPanel.*` el panel de banda; `PluginEditor.*` el resto.
 - `Source/Analyzer.h`, `InstanceRegistry.h`, `CurveMath.h`.
@@ -59,7 +59,7 @@ suenan fuerte en las mismas frecuencias), presets de fábrica y de usuario
   frecuencias de muestreo, mediciones con tonos en los 3 modos, latencias exactas, simetría de fase
   lineal, dinámica, sidechain, solo, Mid/Side, espectral, salida, carácter, 4000 filtros al azar
   (estabilidad), parámetros al azar por bloque, barridos sin clics, Match/Sketch y CPU.
-- `PrismaEngineTest.exe` (JUCE): parámetros, latencia informada, estado, presets, A/B, deshacer,
+- `CincelEngineTest.exe` (JUCE): parámetros, latencia informada, estado, presets, A/B, deshacer,
   mono, sidechain, instancias. `--screenshot ruta.png [match|piano|ms|dyn]`.
 
 ## Limitaciones conocidas

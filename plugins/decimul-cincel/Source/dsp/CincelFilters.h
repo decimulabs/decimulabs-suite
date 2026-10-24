@@ -1,6 +1,6 @@
 #pragma once
 
-// Diseño de los filtros del EQ (DecimuLabs Prisma, nombre de trabajo).
+// Diseño de los filtros del EQ (DecimuLabs Cincel, nombre de trabajo).
 //
 // Cada banda se describe primero como un filtro ANALÓGICO (secciones de 1º y 2º orden en s).
 // Esa descripción sirve para tres cosas:
@@ -19,7 +19,7 @@
 #include <cmath>
 #include <complex>
 
-namespace prisma
+namespace cincel
 {
 constexpr double kPi = 3.14159265358979323846;
 constexpr int maxBands = 24;
@@ -855,4 +855,4 @@ inline DigitalDesign toDigital(const AnalogDesign& d, double fs)
     }
     return out;
 }
-} // namespace prisma
+} // namespace cincel

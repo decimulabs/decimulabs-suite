@@ -11,12 +11,12 @@
 #include <DecimuTooltips.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
-/** EQ Match: aprende cómo suena una referencia (el sidechain u otra pista con Prisma) y cómo
+/** EQ Match: aprende cómo suena una referencia (el sidechain u otra pista con Cincel) y cómo
     suena esta pista, y arma las bandas que acercan una a la otra. */
 class MatchPanel : public juce::Component
 {
 public:
-    MatchPanel(DecimulPrismaProcessor&, DecimuTooltips&);
+    MatchPanel(DecimulCincelProcessor&, DecimuTooltips&);
     void refreshSources(bool spanish);
     void tick();                    // timer del editor: acumula mientras aprende
     void paint(juce::Graphics&) override;
@@ -27,7 +27,7 @@ private:
     void apply();
     void clearLearning();
 
-    DecimulPrismaProcessor& proc;
+    DecimulCincelProcessor& proc;
     juce::ComboBox source;
     DecimuPillButton learn { "LEARN" }, applyButton { "APPLY" }, clearButton { "CLEAR" }, closeButton { "X" };
     juce::Slider bandsKnob, amountKnob;
@@ -38,12 +38,12 @@ private:
     bool spanish = false;
 };
 
-/** Lista de las otras instancias de Prisma: elegir una muestra su espectro y su curva encima, y
+/** Lista de las otras instancias de Cincel: elegir una muestra su espectro y su curva encima, y
     marca en rojo dónde chocan las dos pistas. */
 class InstancesPanel : public juce::Component
 {
 public:
-    InstancesPanel(DecimulPrismaProcessor&, DecimuTooltips&);
+    InstancesPanel(DecimulCincelProcessor&, DecimuTooltips&);
     void refreshList(bool spanish);
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -51,7 +51,7 @@ public:
     std::function<void()> onChange, onClose;
 
 private:
-    DecimulPrismaProcessor& proc;
+    DecimulCincelProcessor& proc;
     juce::OwnedArray<DecimuPillButton> buttons;
     std::vector<int> ids;
     DecimuPillButton noneButton { "-" }, collisions { "COLLISIONS" }, closeButton { "X" };
@@ -60,17 +60,17 @@ private:
 };
 
 /**
-    UI de DecimuLabs Prisma (nombre de trabajo). Mismo chasis que el resto de la suite (shared/),
+    UI de DecimuLabs Cincel. Mismo chasis que el resto de la suite (shared/),
     acento rosa. Arriba: presets, A/B, deshacer/rehacer y bypass. En el medio la pantalla (curva
     + analizador) con el panel de la banda elegida flotando abajo. Abajo: modo de proceso,
     carácter, analizador, EQ Match, Sketch, instancias, piano, auto gain, dinámica y salida.
 */
-class DecimulPrismaEditor : public juce::AudioProcessorEditor,
+class DecimulCincelEditor : public juce::AudioProcessorEditor,
                             private juce::Timer
 {
 public:
-    explicit DecimulPrismaEditor(DecimulPrismaProcessor&);
-    ~DecimulPrismaEditor() override;
+    explicit DecimulCincelEditor(DecimulCincelProcessor&);
+    ~DecimulCincelEditor() override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -95,7 +95,7 @@ private:
     void updateLanguage();
     void layoutOverlays();
 
-    DecimulPrismaProcessor& processorRef;
+    DecimulCincelProcessor& processorRef;
     DecimuLookAndFeel lookAndFeel { DecimuAccentTheme::rose() };
     DecimuTooltips tips { *this };
 
@@ -129,5 +129,5 @@ private:
     bool panelAtTop = false;
     int instanceRefreshCounter = 0;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulPrismaEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulCincelEditor)
 };

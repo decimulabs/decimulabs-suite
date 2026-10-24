@@ -12,14 +12,14 @@
 // Mid/Side y bandas de un solo canal: todo es lineal, así que el EQ completo es una matriz 2x2
 // de filtros. [L';R'] = Tinv · diag(HM, HS) · T · diag(HL, HR) · [L;R], con T el pasaje a M/S.
 
-#include "PrismaFft.h"
-#include "PrismaFilters.h"
+#include "CincelFft.h"
+#include "CincelFilters.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
 #include <vector>
 
-namespace prisma
+namespace cincel
 {
 constexpr int lpPartition = 512;
 constexpr int numLpResolutions = 5;   // Low, Medium, High, Very High, Maximum
@@ -577,4 +577,4 @@ private:
     std::atomic<uint32_t> seq { 0 };
     LpSnapshot mailbox;
 };
-} // namespace prisma
+} // namespace cincel

@@ -7,10 +7,10 @@
 // un extremo) y después se ajustan todas juntas (Levenberg-Marquardt sobre frecuencia, ganancia
 // y Q) para que la suma siga a la curva lo mejor posible.
 
-#include "PrismaFilters.h"
+#include "CincelFilters.h"
 #include <vector>
 
-namespace prisma
+namespace cincel
 {
 struct FitGrid
 {
@@ -287,4 +287,4 @@ inline std::vector<double> smoothOctave(const std::vector<double>& hz, const std
     }
     return out;
 }
-} // namespace prisma
+} // namespace cincel

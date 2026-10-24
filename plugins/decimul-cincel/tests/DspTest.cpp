@@ -1,16 +1,16 @@
-// Test rápido del motor de Prisma, sin JUCE: se compila con tests\build_dsp.bat.
+// Test rápido del motor de Cincel, sin JUCE: se compila con tests\build_dsp.bat.
 // Mide en números lo que el oído no puede verificar acá: que las curvas digitales sigan a las
 // analógicas, que cada modo haga lo que dice y que nada explote.
 
-#include "../Source/dsp/PrismaEngine.h"
-#include "../Source/dsp/PrismaFit.h"
+#include "../Source/dsp/CincelEngine.h"
+#include "../Source/dsp/CincelFit.h"
 #include <chrono>
 #include <cstdio>
 #include <random>
 #include <string>
 #include <vector>
 
-using namespace prisma;
+using namespace cincel;
 
 namespace
 {

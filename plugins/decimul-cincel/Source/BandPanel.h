@@ -44,7 +44,7 @@ public:
         juce::uint32 pendingSince = 0;
     };
 
-    BandPanel(DecimulPrismaProcessor&, DecimuTooltips&);
+    BandPanel(DecimulCincelProcessor&, DecimuTooltips&);
     ~BandPanel() override;
 
     void setBand(int index);
@@ -74,10 +74,10 @@ private:
     void setupKnob(Knob& k, const juce::String& caption);
     void placeKnob(Knob& k, juce::Rectangle<int> cell);
     void beginRelative(Knob& k);
-    void applyRelative(Knob& k, PrismaIDs::BandKey key, bool ratio);
-    void applyToOthers(PrismaIDs::BandKey key, float plainValue);
+    void applyRelative(Knob& k, CincelIDs::BandKey key, bool ratio);
+    void applyToOthers(CincelIDs::BandKey key, float plainValue);
 
-    DecimulPrismaProcessor& proc;
+    DecimulCincelProcessor& proc;
     DecimuTooltips& tips;
     int band = -1;
     bool spanish = false;
@@ -92,7 +92,7 @@ private:
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeAttach, slopeAttach, placeAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> dynAttach, autoAttach, scAttach, specAttach, onAttach;
-    std::vector<std::pair<int, prisma::BandParams>> relativeStart;
+    std::vector<std::pair<int, cincel::BandParams>> relativeStart;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BandPanel)
 };

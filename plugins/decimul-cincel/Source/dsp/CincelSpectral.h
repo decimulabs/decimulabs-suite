@@ -9,11 +9,11 @@
 // Trabaja con STFT (ventana Hann, solapamiento de 75 %). Latencia: el tamaño de la FFT (2048
 // muestras a 44.1/48 kHz). Solo se activa (y suma esa latencia) si alguna banda la usa.
 
-#include "PrismaFft.h"
-#include "PrismaIir.h"
+#include "CincelFft.h"
+#include "CincelIir.h"
 #include <vector>
 
-namespace prisma
+namespace cincel
 {
 inline bool usesSpectral(const BandParams& b) { return usesDynamics(b) && b.spectral; }
 
@@ -294,4 +294,4 @@ private:
     std::array<std::vector<double>, 5> gains;
     std::array<BandState, maxBands> state;
 };
-} // namespace prisma
+} // namespace cincel

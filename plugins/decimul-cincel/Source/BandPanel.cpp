@@ -1,9 +1,9 @@
 #include "BandPanel.h"
 #include "EqDisplay.h"
 
-using prisma::BandParams;
+using cincel::BandParams;
 
-BandPanel::BandPanel(DecimulPrismaProcessor& p, DecimuTooltips& t) : proc(p), tips(t)
+BandPanel::BandPanel(DecimulCincelProcessor& p, DecimuTooltips& t) : proc(p), tips(t)
 {
     for (auto* b : { &prevButton, &nextButton, &soloPill, &deletePill })
         addAndMakeVisible(*b);
@@ -35,20 +35,20 @@ BandPanel::BandPanel(DecimulPrismaProcessor& p, DecimuTooltips& t) : proc(p), ti
     q.slider.onDragStart = [this] { beginRelative(q); };
     range.slider.onDragStart = [this] { beginRelative(range); };
     thr.slider.onDragStart = [this] { beginRelative(thr); };
-    freq.slider.onValueChange = [this] { applyRelative(freq, PrismaIDs::freq, true); };
-    gain.slider.onValueChange = [this] { applyRelative(gain, PrismaIDs::gain, false); };
-    q.slider.onValueChange = [this] { applyRelative(q, PrismaIDs::q, true); };
-    range.slider.onValueChange = [this] { applyRelative(range, PrismaIDs::range, false); };
-    thr.slider.onValueChange = [this] { applyRelative(thr, PrismaIDs::thr, false); };
+    freq.slider.onValueChange = [this] { applyRelative(freq, CincelIDs::freq, true); };
+    gain.slider.onValueChange = [this] { applyRelative(gain, CincelIDs::gain, false); };
+    q.slider.onValueChange = [this] { applyRelative(q, CincelIDs::q, true); };
+    range.slider.onValueChange = [this] { applyRelative(range, CincelIDs::range, false); };
+    thr.slider.onValueChange = [this] { applyRelative(thr, CincelIDs::thr, false); };
     for (auto* k : { &freq, &gain, &q, &range, &thr })
         k->slider.onDragEnd = [this] { relativeStart.clear(); };
 
     // Lo que el usuario cambia acá se copia a las otras bandas elegidas (no lo que llega de un
     // deshacer, un preset o una automatización: por eso se mira de dónde vino el cambio).
-    shapeBox.onChange = [this] { if (shapeBox.consumeUserChange()) applyToOthers(PrismaIDs::shape, (float) shapeBox.getSelectedItemIndex()); };
-    slopeBox.onChange = [this] { if (slopeBox.consumeUserChange()) applyToOthers(PrismaIDs::slope, (float) slopeBox.getSelectedItemIndex()); };
-    placeBox.onChange = [this] { if (placeBox.consumeUserChange()) applyToOthers(PrismaIDs::place, (float) placeBox.getSelectedItemIndex()); };
-    auto pillToOthers = [this](DecimuPillButton& pill, PrismaIDs::BandKey key)
+    shapeBox.onChange = [this] { if (shapeBox.consumeUserChange()) applyToOthers(CincelIDs::shape, (float) shapeBox.getSelectedItemIndex()); };
+    slopeBox.onChange = [this] { if (slopeBox.consumeUserChange()) applyToOthers(CincelIDs::slope, (float) slopeBox.getSelectedItemIndex()); };
+    placeBox.onChange = [this] { if (placeBox.consumeUserChange()) applyToOthers(CincelIDs::place, (float) placeBox.getSelectedItemIndex()); };
+    auto pillToOthers = [this](DecimuPillButton& pill, CincelIDs::BandKey key)
     {
         pill.onClick = [this, &pill, key]
         {
@@ -56,11 +56,11 @@ BandPanel::BandPanel(DecimulPrismaProcessor& p, DecimuTooltips& t) : proc(p), ti
                 applyToOthers(key, pill.getToggleState() ? 1.0f : 0.0f);
         };
     };
-    pillToOthers(dynPill, PrismaIDs::dyn);
-    pillToOthers(autoPill, PrismaIDs::autoThr);
-    pillToOthers(scPill, PrismaIDs::sc);
-    pillToOthers(specPill, PrismaIDs::spec);
-    pillToOthers(onPill, PrismaIDs::on);
+    pillToOthers(dynPill, CincelIDs::dyn);
+    pillToOthers(autoPill, CincelIDs::autoThr);
+    pillToOthers(scPill, CincelIDs::sc);
+    pillToOthers(specPill, CincelIDs::spec);
+    pillToOthers(onPill, CincelIDs::on);
     addMouseListener(this, true);
 
     soloPill.onClick = [this]
@@ -156,19 +156,19 @@ void BandPanel::setBand(int index)
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
-    freq.attach = std::make_unique<SA>(s, PrismaIDs::band(band, PrismaIDs::freq), freq.slider);
-    gain.attach = std::make_unique<SA>(s, PrismaIDs::band(band, PrismaIDs::gain), gain.slider);
-    q.attach = std::make_unique<SA>(s, PrismaIDs::band(band, PrismaIDs::q), q.slider);
-    range.attach = std::make_unique<SA>(s, PrismaIDs::band(band, PrismaIDs::range), range.slider);
-    thr.attach = std::make_unique<SA>(s, PrismaIDs::band(band, PrismaIDs::thr), thr.slider);
-    shapeAttach = std::make_unique<CA>(s, PrismaIDs::band(band, PrismaIDs::shape), shapeBox);
-    slopeAttach = std::make_unique<CA>(s, PrismaIDs::band(band, PrismaIDs::slope), slopeBox);
-    placeAttach = std::make_unique<CA>(s, PrismaIDs::band(band, PrismaIDs::place), placeBox);
-    dynAttach = std::make_unique<BA>(s, PrismaIDs::band(band, PrismaIDs::dyn), dynPill);
-    autoAttach = std::make_unique<BA>(s, PrismaIDs::band(band, PrismaIDs::autoThr), autoPill);
-    scAttach = std::make_unique<BA>(s, PrismaIDs::band(band, PrismaIDs::sc), scPill);
-    specAttach = std::make_unique<BA>(s, PrismaIDs::band(band, PrismaIDs::spec), specPill);
-    onAttach = std::make_unique<BA>(s, PrismaIDs::band(band, PrismaIDs::on), onPill);
+    freq.attach = std::make_unique<SA>(s, CincelIDs::band(band, CincelIDs::freq), freq.slider);
+    gain.attach = std::make_unique<SA>(s, CincelIDs::band(band, CincelIDs::gain), gain.slider);
+    q.attach = std::make_unique<SA>(s, CincelIDs::band(band, CincelIDs::q), q.slider);
+    range.attach = std::make_unique<SA>(s, CincelIDs::band(band, CincelIDs::range), range.slider);
+    thr.attach = std::make_unique<SA>(s, CincelIDs::band(band, CincelIDs::thr), thr.slider);
+    shapeAttach = std::make_unique<CA>(s, CincelIDs::band(band, CincelIDs::shape), shapeBox);
+    slopeAttach = std::make_unique<CA>(s, CincelIDs::band(band, CincelIDs::slope), slopeBox);
+    placeAttach = std::make_unique<CA>(s, CincelIDs::band(band, CincelIDs::place), placeBox);
+    dynAttach = std::make_unique<BA>(s, CincelIDs::band(band, CincelIDs::dyn), dynPill);
+    autoAttach = std::make_unique<BA>(s, CincelIDs::band(band, CincelIDs::autoThr), autoPill);
+    scAttach = std::make_unique<BA>(s, CincelIDs::band(band, CincelIDs::sc), scPill);
+    specAttach = std::make_unique<BA>(s, CincelIDs::band(band, CincelIDs::spec), specPill);
+    onAttach = std::make_unique<BA>(s, CincelIDs::band(band, CincelIDs::on), onPill);
 
     freq.slider.textFromValueFunction = [](double v) { return EqDisplay::formatHz(v); };
     gain.slider.textFromValueFunction = [](double v) { return (v > 0 ? "+" : "") + juce::String(v, 1) + " dB"; };
@@ -191,10 +191,10 @@ void BandPanel::refresh()
         return;
     const auto b = proc.readBand(band);
     soloPill.setToggleState(proc.soloBand.load() == band, juce::dontSendNotification);
-    const bool hasGain = prisma::shapeHasGain(b.shape);
+    const bool hasGain = cincel::shapeHasGain(b.shape);
     gain.slider.setEnabled(hasGain);
-    slopeBox.setEnabled(prisma::shapeHasSlope(b.shape));
-    q.slider.setEnabled(prisma::shapeHasQ(b.shape));
+    slopeBox.setEnabled(cincel::shapeHasSlope(b.shape));
+    q.slider.setEnabled(cincel::shapeHasQ(b.shape));
     dynPill.setEnabled(hasGain);
     const bool dyn = hasGain && b.dynamic;
     for (auto* c : { (juce::Component*) &range.slider, (juce::Component*) &autoPill, (juce::Component*) &scPill, (juce::Component*) &specPill })
@@ -216,7 +216,7 @@ void BandPanel::beginRelative(Knob& k)
             relativeStart.push_back({ i, proc.readBand(i) });
 }
 
-void BandPanel::applyRelative(Knob& k, PrismaIDs::BandKey key, bool ratio)
+void BandPanel::applyRelative(Knob& k, CincelIDs::BandKey key, bool ratio)
 {
     if (relativeStart.empty() || !k.slider.isMouseButtonDown())
         return;
@@ -226,11 +226,11 @@ void BandPanel::applyRelative(Knob& k, PrismaIDs::BandKey key, bool ratio)
         auto b = proc.readBand(i);
         switch (key)
         {
-            case PrismaIDs::freq: b.freq = (float) juce::jlimit(10.0, 30000.0, start.freq * now / std::max(1.0e-6, k.dragStart)); break;
-            case PrismaIDs::q: b.q = (float) juce::jlimit(0.025, 40.0, start.q * now / std::max(1.0e-6, k.dragStart)); break;
-            case PrismaIDs::gain: b.gainDb = (float) juce::jlimit(-30.0, 30.0, start.gainDb + now - k.dragStart); break;
-            case PrismaIDs::range: b.rangeDb = (float) juce::jlimit(-30.0, 30.0, start.rangeDb + now - k.dragStart); break;
-            case PrismaIDs::thr: b.thresholdDb = (float) juce::jlimit(-80.0, 0.0, start.thresholdDb + now - k.dragStart); break;
+            case CincelIDs::freq: b.freq = (float) juce::jlimit(10.0, 30000.0, start.freq * now / std::max(1.0e-6, k.dragStart)); break;
+            case CincelIDs::q: b.q = (float) juce::jlimit(0.025, 40.0, start.q * now / std::max(1.0e-6, k.dragStart)); break;
+            case CincelIDs::gain: b.gainDb = (float) juce::jlimit(-30.0, 30.0, start.gainDb + now - k.dragStart); break;
+            case CincelIDs::range: b.rangeDb = (float) juce::jlimit(-30.0, 30.0, start.rangeDb + now - k.dragStart); break;
+            case CincelIDs::thr: b.thresholdDb = (float) juce::jlimit(-80.0, 0.0, start.thresholdDb + now - k.dragStart); break;
             default: break;
         }
         juce::ignoreUnused(ratio);
@@ -238,7 +238,7 @@ void BandPanel::applyRelative(Knob& k, PrismaIDs::BandKey key, bool ratio)
     }
 }
 
-void BandPanel::applyToOthers(PrismaIDs::BandKey key, float plainValue)
+void BandPanel::applyToOthers(CincelIDs::BandKey key, float plainValue)
 {
     if (band < 0 || !getSelection)
         return;

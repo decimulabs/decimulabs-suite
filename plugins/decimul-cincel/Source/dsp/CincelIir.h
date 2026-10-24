@@ -1,8 +1,8 @@
 #pragma once
 
-// Motor IIR de Prisma: las 24 bandas como cascadas de biquads (magnitud igualada a la analógica).
+// Motor IIR de Cincel: las 24 bandas como cascadas de biquads (magnitud igualada a la analógica).
 // Lo usan el modo "latencia cero" (a la frecuencia del proyecto) y el modo "fase natural"
-// (el mismo motor, sobremuestreado: ver PrismaOversampler.h).
+// (el mismo motor, sobremuestreado: ver CincelOversampler.h).
 //
 // Cómo trabaja, por tramos de 32 muestras:
 //   1. Cada banda suaviza frecuencia (en escala logarítmica), ganancia y Q hacia lo pedido, y
@@ -13,10 +13,10 @@
 // Un cambio de forma, pendiente o ubicación, o prender/apagar la banda, no se hace de golpe: la
 // banda se funde a "sin efecto" en 10 ms, se rearma y vuelve (sin clics).
 
-#include "PrismaFilters.h"
+#include "CincelFilters.h"
 #include <atomic>
 
-namespace prisma
+namespace cincel
 {
 /** Ajustes de la dinámica compartidos por todas las bandas. */
 struct DynamicsSettings
@@ -475,4 +475,4 @@ private:
     std::array<Band, maxBands> bands {};
     double scratchA[chunk] {}, scratchB[chunk] {};
 };
-} // namespace prisma
+} // namespace cincel

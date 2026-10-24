@@ -1,6 +1,6 @@
 #include "PluginEditor.h"
 #include "BinaryData.h"
-#include "dsp/PrismaFit.h"
+#include "dsp/CincelFit.h"
 
 namespace
 {
@@ -29,7 +29,7 @@ namespace
 }
 
 //==============================================================================
-MatchPanel::MatchPanel(DecimulPrismaProcessor& p, DecimuTooltips& tips) : proc(p)
+MatchPanel::MatchPanel(DecimulCincelProcessor& p, DecimuTooltips& tips) : proc(p)
 {
     for (auto* c : { (juce::Component*) &source, (juce::Component*) &learn, (juce::Component*) &applyButton,
                      (juce::Component*) &clearButton, (juce::Component*) &closeButton, (juce::Component*) &bandsKnob,
@@ -58,8 +58,8 @@ MatchPanel::MatchPanel(DecimulPrismaProcessor& p, DecimuTooltips& tips) : proc(p
     closeButton.onClick = [this] { if (onClose) onClose(); };
     source.onChange = [this] { clearLearning(); };
 
-    tips.add(source, "Reference: what this track should sound like. The sidechain input, or another track that has Prisma.",
-             "Referencia: cómo debería sonar esta pista. La entrada de sidechain, u otra pista que tenga Prisma.");
+    tips.add(source, "Reference: what this track should sound like. The sidechain input, or another track that has Cincel.",
+             "Referencia: cómo debería sonar esta pista. La entrada de sidechain, u otra pista que tenga Cincel.");
     tips.add(learn, "Learn: press it and play both (the reference and this track) for a while, 10 seconds or more. Press again to stop.",
              "Aprender: apretalo y hacé sonar las dos (la referencia y esta pista) un rato, 10 segundos o más. Apretá de nuevo para parar.");
     tips.add(bandsKnob, "How many bands it can use to get closer to the reference.", "Cuántas bandas puede usar para acercarse a la referencia.");
@@ -153,9 +153,9 @@ void MatchPanel::apply()
         anaHz.push_back(SpectrumAnalyzer::pointHz(i));
         diff.push_back(10.0 * std::log10(sumRef[(size_t) i] / frames + 1.0e-20) - 10.0 * std::log10(sumCur[(size_t) i] / frames + 1.0e-20));
     }
-    diff = prisma::smoothOctave(anaHz, diff, 1.0 / 3.0);
+    diff = cincel::smoothOctave(anaHz, diff, 1.0 / 3.0);
 
-    prisma::FitGrid grid;
+    cincel::FitGrid grid;
     grid.build(200);
     double sumW = 0.0, sumD = 0.0;
     for (int i = 0; i < grid.size(); ++i)
@@ -180,7 +180,7 @@ void MatchPanel::apply()
     for (auto& t : grid.target)
         t = juce::jlimit(-18.0, 18.0, t - mean) * amount;
 
-    const auto fitted = prisma::fitBandsToCurve(grid, (int) bandsKnob.getValue());
+    const auto fitted = cincel::fitBandsToCurve(grid, (int) bandsKnob.getValue());
     proc.undoManager.beginNewTransaction("EQ Match");
     proc.resetAll(false);
     int idx = 0;
@@ -219,7 +219,7 @@ void MatchPanel::resized()
 }
 
 //==============================================================================
-InstancesPanel::InstancesPanel(DecimulPrismaProcessor& p, DecimuTooltips& tips) : proc(p)
+InstancesPanel::InstancesPanel(DecimulCincelProcessor& p, DecimuTooltips& tips) : proc(p)
 {
     for (auto* c : { (juce::Component*) &noneButton, (juce::Component*) &collisions, (juce::Component*) &closeButton,
                      (juce::Component*) &title, (juce::Component*) &empty })
@@ -273,8 +273,8 @@ void InstancesPanel::refreshList(bool es)
         buttons[(int) i]->setToggleState(others[i].id == selected, juce::dontSendNotification);
     }
     noneButton.setToggleState(selected == 0, juce::dontSendNotification);
-    empty.setText(others.empty() ? tr(es, "No other Prisma open. Put it on other tracks to compare them here.",
-                                      "No hay otro Prisma abierto. Ponelo en otras pistas para compararlas acá.")
+    empty.setText(others.empty() ? tr(es, "No other Cincel open. Put it on other tracks to compare them here.",
+                                      "No hay otro Cincel abierto. Ponelo en otras pistas para compararlas acá.")
                                  : juce::String(),
                   juce::dontSendNotification);
 }
@@ -306,7 +306,7 @@ void InstancesPanel::resized()
 }
 
 //==============================================================================
-void DecimulPrismaEditor::addKnob(Knob& k, const juce::String& paramID, const juce::String& caption)
+void DecimulCincelEditor::addKnob(Knob& k, const juce::String& paramID, const juce::String& caption)
 {
     setupSmallKnob(k.slider);
     addAndMakeVisible(k.slider);
@@ -318,14 +318,14 @@ void DecimulPrismaEditor::addKnob(Knob& k, const juce::String& paramID, const ju
     k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processorRef.apvts, paramID, k.slider);
 }
 
-void DecimulPrismaEditor::placeKnob(Knob& k, juce::Rectangle<int> cell)
+void DecimulCincelEditor::placeKnob(Knob& k, juce::Rectangle<int> cell)
 {
     k.label.setBounds(cell.removeFromTop(14));
     const int side = std::min(cell.getWidth(), cell.getHeight() - 16);
     k.slider.setBounds(cell.withSizeKeepingCentre(std::max(side, 56), side + 16));
 }
 
-DecimulPrismaEditor::DecimulPrismaEditor(DecimulPrismaProcessor& p)
+DecimulCincelEditor::DecimulCincelEditor(DecimulCincelProcessor& p)
     : juce::AudioProcessorEditor(&p), processorRef(p), display(p), bandPanel(p, tips), matchPanel(p, tips), instancesPanel(p, tips)
 {
     setLookAndFeel(&lookAndFeel);
@@ -349,12 +349,12 @@ DecimulPrismaEditor::DecimulPrismaEditor(DecimulPrismaProcessor& p)
     bandPanel.onDelete = [this] { display.deleteSelection(); };
     bandPanel.onNavigate = [this](int dir)
     {
-        std::array<prisma::BandParams, prisma::maxBands> all;
+        std::array<cincel::BandParams, cincel::maxBands> all;
         processorRef.readAllBands(all);
         int i = display.getPrimary();
-        for (int step = 0; step < prisma::maxBands; ++step)
+        for (int step = 0; step < cincel::maxBands; ++step)
         {
-            i = (i + dir + prisma::maxBands) % prisma::maxBands;
+            i = (i + dir + cincel::maxBands) % cincel::maxBands;
             if (all[(size_t) i].used)
             {
                 display.selectOnly(i);
@@ -379,7 +379,7 @@ DecimulPrismaEditor::DecimulPrismaEditor(DecimulPrismaProcessor& p)
     redoButton.onClick = [this] { processorRef.undoManager.redo(); };
     addAndMakeVisible(bypassButton);
     addAndMakeVisible(vuArc);
-    bypassAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, PrismaIDs::bypass, bypassButton);
+    bypassAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, CincelIDs::bypass, bypassButton);
 
     // ---- Abajo ----
     modeBox.addItemList({ "Zero Latency", "Natural Phase", "Linear Phase" }, 1);
@@ -388,9 +388,9 @@ DecimulPrismaEditor::DecimulPrismaEditor(DecimulPrismaProcessor& p)
     rangeBox.addItemList({ "+/- 3 dB", "+/- 6 dB", "+/- 12 dB", "+/- 30 dB" }, 1);
     for (auto* c : { &modeBox, &resBox, &charBox, &rangeBox })
         addAndMakeVisible(*c);
-    modeAttach = std::make_unique<ComboAttachment>(processorRef.apvts, PrismaIDs::mode, modeBox);
-    resAttach = std::make_unique<ComboAttachment>(processorRef.apvts, PrismaIDs::lpRes, resBox);
-    charAttach = std::make_unique<ComboAttachment>(processorRef.apvts, PrismaIDs::character, charBox);
+    modeAttach = std::make_unique<ComboAttachment>(processorRef.apvts, CincelIDs::mode, modeBox);
+    resAttach = std::make_unique<ComboAttachment>(processorRef.apvts, CincelIDs::lpRes, resBox);
+    charAttach = std::make_unique<ComboAttachment>(processorRef.apvts, CincelIDs::character, charBox);
     rangeBox.setSelectedItemIndex((int) processorRef.uiState().getProperty("range", 2), juce::dontSendNotification);
     rangeBox.onChange = [this] { processorRef.uiState().setProperty("range", rangeBox.getSelectedItemIndex(), nullptr); };
 
@@ -404,9 +404,9 @@ DecimulPrismaEditor::DecimulPrismaEditor(DecimulPrismaProcessor& p)
         addAndMakeVisible(*b);
     for (auto* b : { &matchPill, &sketchPill, &instancesPill, &pianoPill, &gainQPill, &autoGainPill, &phasePill })
         b->setClickingTogglesState(true);
-    gainQAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, PrismaIDs::gainQ, gainQPill);
-    autoGainAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, PrismaIDs::autoGain, autoGainPill);
-    phaseAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, PrismaIDs::phase, phasePill);
+    gainQAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, CincelIDs::gainQ, gainQPill);
+    autoGainAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, CincelIDs::autoGain, autoGainPill);
+    phaseAttach = std::make_unique<ButtonAttachment>(processorRef.apvts, CincelIDs::phase, phasePill);
     analyzerButton.onClick = [this] { display.showBackgroundMenu(); };
     pianoPill.setToggleState((bool) processorRef.uiState().getProperty("piano", false), juce::dontSendNotification);
     pianoPill.onClick = [this]
@@ -428,11 +428,11 @@ DecimulPrismaEditor::DecimulPrismaEditor(DecimulPrismaProcessor& p)
         layoutOverlays();
     };
 
-    addKnob(scaleKnob, PrismaIDs::gainScale, "SCALE");
-    addKnob(attackKnob, PrismaIDs::attack, "ATTACK");
-    addKnob(releaseKnob, PrismaIDs::release, "RELEASE");
-    addKnob(outputKnob, PrismaIDs::output, "OUTPUT");
-    addKnob(panKnob, PrismaIDs::pan, "PAN");
+    addKnob(scaleKnob, CincelIDs::gainScale, "SCALE");
+    addKnob(attackKnob, CincelIDs::attack, "ATTACK");
+    addKnob(releaseKnob, CincelIDs::release, "RELEASE");
+    addKnob(outputKnob, CincelIDs::output, "OUTPUT");
+    addKnob(panKnob, CincelIDs::pan, "PAN");
     scaleKnob.slider.textFromValueFunction = [](double v) { return juce::String((int) std::lround(v)) + " %"; };
     attackKnob.slider.textFromValueFunction = [](double v) { return juce::String(v, v < 10.0 ? 1 : 0) + " ms"; };
     releaseKnob.slider.textFromValueFunction = [](double v) { return juce::String((int) std::lround(v)) + " ms"; };
@@ -466,12 +466,12 @@ DecimulPrismaEditor::DecimulPrismaEditor(DecimulPrismaProcessor& p)
     tips.add(rangeBox, "Vertical zoom of the curve: +/-3, 6, 12 or 30 dB.", "Zoom vertical de la curva: +/-3, 6, 12 o 30 dB.");
     tips.add(analyzerButton, "Analyzer options: input/output/sidechain, resolution, speed, tilt, range, freeze, piano.",
              "Opciones del analizador: entrada/salida/sidechain, resolución, velocidad, inclinación, rango, congelar, piano.");
-    tips.add(matchPill, "EQ Match: makes this track sound like a reference (the sidechain or another track with Prisma).",
-             "EQ Match: hace que esta pista suene como una referencia (el sidechain u otra pista con Prisma).");
+    tips.add(matchPill, "EQ Match: makes this track sound like a reference (the sidechain or another track with Cincel).",
+             "EQ Match: hace que esta pista suene como una referencia (el sidechain u otra pista con Cincel).");
     tips.add(sketchPill, "EQ Sketch: draw the curve you want with the mouse and the bands are created for you.",
              "EQ Sketch: dibujá con el mouse la curva que querés y las bandas se arman solas.");
-    tips.add(instancesPill, "Other tracks with Prisma: show one of them on top of this one and see where they collide.",
-             "Otras pistas con Prisma: mostrar una encima de esta y ver dónde chocan.");
+    tips.add(instancesPill, "Other tracks with Cincel: show one of them on top of this one and see where they collide.",
+             "Otras pistas con Cincel: mostrar una encima de esta y ver dónde chocan.");
     tips.add(pianoPill, "Piano keyboard under the curve, to find notes.", "Teclado de piano debajo de la curva, para ubicar notas.");
     tips.add(gainQPill, "Gain-Q: the more gain a bell has, the narrower it gets (like many analog EQs).",
              "Gain-Q: cuanta más ganancia tiene una campana, más angosta se vuelve (como muchos EQ analógicos).");
@@ -496,7 +496,7 @@ DecimulPrismaEditor::DecimulPrismaEditor(DecimulPrismaProcessor& p)
     startTimerHz(30);
 }
 
-DecimulPrismaEditor::~DecimulPrismaEditor()
+DecimulCincelEditor::~DecimulCincelEditor()
 {
     stopTimer();
     InstanceRegistry::get().setWatching(processorRef.instanceId, false);
@@ -505,7 +505,7 @@ DecimulPrismaEditor::~DecimulPrismaEditor()
     setLookAndFeel(nullptr);
 }
 
-void DecimulPrismaEditor::openMatchPanel(bool open)
+void DecimulCincelEditor::openMatchPanel(bool open)
 {
     matchPill.setToggleState(open, juce::dontSendNotification);
     matchPanel.setVisible(open);
@@ -513,7 +513,7 @@ void DecimulPrismaEditor::openMatchPanel(bool open)
     layoutOverlays();
 }
 
-void DecimulPrismaEditor::showPresetMenu()
+void DecimulCincelEditor::showPresetMenu()
 {
     juce::PopupMenu m, factory, user;
     const auto names = processorRef.factoryPresetNames();
@@ -530,7 +530,7 @@ void DecimulPrismaEditor::showPresetMenu()
     m.addItem(1, tr(spanish, "Save preset...", "Guardar preset..."));
     m.addItem(2, tr(spanish, "Open presets folder", "Abrir la carpeta de presets"));
 
-    juce::Component::SafePointer<DecimulPrismaEditor> safe(this);
+    juce::Component::SafePointer<DecimulCincelEditor> safe(this);
     m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetButton), [safe, sorted](int r)
     {
         if (safe == nullptr || r == 0)
@@ -570,7 +570,7 @@ void DecimulPrismaEditor::showPresetMenu()
     });
 }
 
-void DecimulPrismaEditor::updateLanguage()
+void DecimulCincelEditor::updateLanguage()
 {
     spanish = tips.getLanguage() == DecimuLang::Lang::es;
     display.spanish = spanish;
@@ -592,7 +592,7 @@ void DecimulPrismaEditor::updateLanguage()
     instancesPanel.refreshList(spanish);
 }
 
-bool DecimulPrismaEditor::keyPressed(const juce::KeyPress& key)
+bool DecimulCincelEditor::keyPressed(const juce::KeyPress& key)
 {
     if (key.getModifiers().isCommandDown() && key.getKeyCode() == 'Z')
     {
@@ -610,7 +610,7 @@ bool DecimulPrismaEditor::keyPressed(const juce::KeyPress& key)
     return false;
 }
 
-void DecimulPrismaEditor::paint(juce::Graphics& g)
+void DecimulCincelEditor::paint(juce::Graphics& g)
 {
     auto full = getLocalBounds().toFloat();
     DecimuChrome::paintChassisBackground(g, full, 14.0f);
@@ -636,16 +636,16 @@ void DecimulPrismaEditor::paint(juce::Graphics& g)
     }
     g.setColour(DecimuColours::accentPrimary);
     g.setFont(lookAndFeel.monoFont(24.0f));
-    g.drawText("PRISMA", logoArea.removeFromLeft(100), juce::Justification::centredLeft);
+    g.drawText("CINCEL EQ", logoArea.removeFromLeft(150), juce::Justification::centredLeft);
 
     g.setColour(DecimuColours::textMuted);
     g.setFont(lookAndFeel.monoFont(13.0f));
     auto footer = getLocalBounds().removeFromBottom(22).reduced(16, 3);
-    g.drawText("DECIMULABS - PRISMA - GPLv3", footer, juce::Justification::centredLeft);
+    g.drawText("DECIMULABS - CINCEL EQ - GPLv3", footer, juce::Justification::centredLeft);
     g.drawText("decimulabs.com", footer, juce::Justification::centredRight);
 }
 
-void DecimulPrismaEditor::layoutOverlays()
+void DecimulCincelEditor::layoutOverlays()
 {
     auto area = display.getBounds().reduced(10);
     {
@@ -662,7 +662,7 @@ void DecimulPrismaEditor::layoutOverlays()
     instancesPanel.setBounds(right2);
 }
 
-void DecimulPrismaEditor::resized()
+void DecimulCincelEditor::resized()
 {
     tips.layout(getLocalBounds());
 
@@ -745,7 +745,7 @@ void DecimulPrismaEditor::resized()
     layoutOverlays();
 }
 
-void DecimulPrismaEditor::timerCallback()
+void DecimulCincelEditor::timerCallback()
 {
     const bool es = tips.getLanguage() == DecimuLang::Lang::es;
     if (es != spanish)
@@ -780,8 +780,8 @@ void DecimulPrismaEditor::timerCallback()
     latencyLabel.setText(lat == 0 ? tr(spanish, "no latency", "sin latencia")
                                   : juce::String(lat) + tr(spanish, " smp (", " muestras (") + juce::String(ms, 1) + " ms)",
                          juce::dontSendNotification);
-    resBox.setEnabled(processorRef.globalValue(PrismaIDs::mode) > 1.5f);
-    if (processorRef.globalValue(PrismaIDs::autoGain) > 0.5f)
+    resBox.setEnabled(processorRef.globalValue(CincelIDs::mode) > 1.5f);
+    if (processorRef.globalValue(CincelIDs::autoGain) > 0.5f)
     {
         const float ag = processorRef.autoGainDb();
         autoGainPill.setButtonText("AUTO " + juce::String(ag > 0 ? "+" : "") + juce::String(ag, 1));

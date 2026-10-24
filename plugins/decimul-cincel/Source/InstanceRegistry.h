@@ -7,7 +7,7 @@
 #include <vector>
 
 /**
-    Lista de las instancias de Prisma abiertas en el mismo programa (el DAW carga el plugin una
+    Lista de las instancias de Cincel abiertas en el mismo programa (el DAW carga el plugin una
     vez y todas las instancias comparten esta lista). Cada una publica su espectro de salida y su
     curva; así una puede mostrar la de otra pista y marcar dónde chocan ("collision detection").
     Todo se usa desde el hilo de mensajes, pero igual va con un mutex por las dudas.
@@ -36,7 +36,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex);
         Entry e;
         e.id = nextId++;
-        e.name = "Prisma " + juce::String(e.id);
+        e.name = "Cincel " + juce::String(e.id);
         entries.push_back(e);
         return e.id;
     }

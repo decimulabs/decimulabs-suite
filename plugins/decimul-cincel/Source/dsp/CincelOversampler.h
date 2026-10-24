@@ -5,10 +5,10 @@
 // a las del filtro analógico en todo el rango audible (sin el "apretado" cerca de Nyquist).
 // Precio: un poco de latencia (~1.3 ms), por los filtros de media banda de fase lineal.
 
-#include "PrismaIir.h"
+#include "CincelIir.h"
 #include <vector>
 
-namespace prisma
+namespace cincel
 {
 /** Filtro de media banda (halfband) de fase lineal: h[n] = 0.5 sinc((n - M)/2), ventana Kaiser.
     Tiene ceros en todas las muestras pares respecto del centro: la mitad del trabajo se ahorra. */
@@ -270,4 +270,4 @@ private:
     HalfbandStage stageA[2], stageB[2], inA[2], inB[2];
     std::vector<double> bufL, bufR, midL, midR, inUpL, inUpR, inMidL, inMidR, scUpL, scUpR;
 };
-} // namespace prisma
+} // namespace cincel
