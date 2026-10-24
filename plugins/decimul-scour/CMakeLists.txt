@@ -37,6 +37,7 @@ target_sources(DecimulScour PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/ScopeView.cpp
+    Source/ModuleViz.cpp
 )
 
 # Ídem el resto de la suite: sin esto, MSVC corrompe literales no-ASCII.

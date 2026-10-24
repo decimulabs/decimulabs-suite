@@ -268,13 +268,31 @@ public:
 
     void setFocus(float hz) { if (std::abs(hz - split.focusHz) > 0.5f) split.setFocus(hz); }
 
+    /** Ganancia previa y compensacion de nivel para una cantidad efectiva a (0..1). */
+    static void driveFor(float a, float& kOut, float& compOut)
+    {
+        kOut = 1.0f + 12.0f * a * a + 4.0f * a;
+        compOut = 1.0f / std::sqrt(kOut);
+    }
+
+    /** La forma de cada tipo (sin el filtro de la cinta): u es la entrada ya multiplicada por el drive. */
+    static float shape(int type, float u)
+    {
+        switch (type)
+        {
+            case 0:  return fastTanh(u + 0.18f) - kTubeBias;                          // tubo: asimetrico
+            case 1:  return fastTanh(0.85f * u) * (1.0f / 0.85f);                      // cinta: simetrico y suave
+            case 2:  return u >= 0.0f ? u / (1.0f + 0.8f * u) : u / (1.0f - 1.1f * u); // diodo: asimetrico
+            default: return std::sin(std::clamp(u, -9.0f, 9.0f) * 1.15f);              // pliegue
+        }
+    }
+
     /** Se llama a tasa de control con la cantidad efectiva (0..1). */
     void update(float a)
     {
         if (a == lastA) return;
         lastA = a;
-        k = 1.0f + 12.0f * a * a + 4.0f * a;
-        comp = 1.0f / std::sqrt(k);
+        driveFor(a, k, comp);
     }
 
     /** a: 0..1 (cantidad efectiva); mix: 0..1. Procesa una muestra por canal. */
@@ -285,14 +303,9 @@ public:
         const float low = split.low(ch, x);
         const float high = x - low;
         const float u = k * high;
-        float y;
-        switch (type)
-        {
-            case 0:  y = fastTanh(u + 0.18f) - kTubeBias; break;                                         // tubo: asimetrico
-            case 1:  y = tapeLp[ch].lp(fastTanh(0.85f * u) * (1.0f / 0.85f)); break;                      // cinta: simetrico y suave
-            case 2:  y = u >= 0.0f ? u / (1.0f + 0.8f * u) : u / (1.0f - 1.1f * u); break;                // diodo: asimetrico
-            default: y = std::sin(std::clamp(u, -9.0f, 9.0f) * 1.15f); break;                           // pliegue
-        }
+        float y = shape(type, u);
+        if (type == 1)
+            y = tapeLp[ch].lp(y);                                                       // cinta: pierde agudos
         y *= comp;
         // saca el DC que dejan las formas asimétricas
         dcZ[ch] += dcCoef * (y - dcZ[ch]);
@@ -392,6 +405,7 @@ public:
         if (a <= 0.0005f || mix <= 0.0f)
         {
             delay[0].push(inL); delay[1].push(inR);
+            lastDelayMs = 0.0f;
             return;
         }
         if (--driftHold <= 0)
@@ -420,10 +434,11 @@ public:
             const float off = c == 0 ? 0.0f : stereo;
             float pw = wowPh + 0.5f * off, pf = flutPh + 0.33f * off;
             pw -= std::floor(pw); pf -= std::floor(pf);
-            const float d = 3.0f + wowA * (1.0f + std::sin(pw * kTwoPi)) + flutA * (1.0f + std::sin(pf * kTwoPi))
+            const float d = 3.0f + 0.12f * (wowA + flutA) + wowA * (1.0f + std::sin(pw * kTwoPi)) + flutA * (1.0f + std::sin(pf * kTwoPi))
                             + 0.12f * (wowA + flutA) * drift;
             out[c] = delay[c].read(d);
             delay[c].push(in[c]);
+            if (c == 0) lastDelayMs = d * 1000.0f / (float) sr;
         }
         l = inL + (out[0] - inL) * mix;
         r = inR + (out[1] - inR) * mix;
@@ -436,6 +451,11 @@ private:
     Rng rng;
     float drift = 0.0f, driftTarget = 0.0f, driftCoef = 0.0001f;
     int driftHold = 0;
+    float lastDelayMs = 0.0f;
+
+public:
+    /** Retardo actual del canal izquierdo, en ms (0 si el modulo esta sin actuar): para la pantalla. */
+    float getLastDelayMs() const { return lastDelayMs; }
 };
 
 //==============================================================================
@@ -467,6 +487,7 @@ public:
         if (a <= 0.0005f)
         {
             wearLp[0].z = l; wearLp[1].z = r; wearLp2[0].z = l; wearLp2[1].z = r;
+            lastGain = 1.0f;
             return;
         }
         const float ww = balance <= 0.5f ? 1.0f : (1.0f - balance) * 2.0f;
@@ -504,6 +525,7 @@ public:
             g[c] = (1.0f + wanderLn + 0.5f * wanderLn * wanderLn) * (1.0f - 0.38f * a * wf * flut) * drop[c];
         }
         // con stereo 0 los dos canales comparten la modulación del izquierdo
+        lastGain = g[0];
         const float gl = g[0];
         const float gr = g[0] + (g[1] - g[0]) * stereo;
         const float gains[2] = { gl, gr };
@@ -530,6 +552,11 @@ private:
     float drop[2], dropDepth[2];
     int dropHold[2];
     float wanderCoef = 0.0001f, dropAtk = 0.01f, dropRel = 0.001f, lastCutoff = 0.0f;
+    float lastGain = 1.0f;
+
+public:
+    /** Ganancia actual del canal izquierdo (desgaste, flutter y caidas): para la pantalla. */
+    float getLastGain() const { return lastGain; }
 };
 
 //==============================================================================
@@ -677,6 +704,22 @@ public:
 
     void setParams(const Params& p) { params = p; }
 
+    /** Datos en vivo para los visualizadores de los modulos, acumulados desde la ultima lectura. */
+    struct Viz
+    {
+        float noiseMin = 0.0f, noiseMax = 0.0f;   // extremos del ruido generado
+        float wobDelayMs = 0.0f;                  // retardo del wobble al final del tramo
+        float magGain = 1.0f;                     // la ganancia mas baja de la cinta en el tramo
+    };
+
+    Viz takeViz()
+    {
+        Viz v = vizAcc;
+        vizAcc.noiseMin = vizAcc.noiseMax = 0.0f;
+        vizAcc.magGain = 1.0f;
+        return v;
+    }
+
     // Valores efectivos del último paso de control (para la UI y los tests)
     float getFlux(int module) const { return fluxValue[module]; }
     float effectiveAmount(int module) const { return lastAmt[module]; }
@@ -775,6 +818,8 @@ private:
                 const float g = dbToGain(gDb) * ((1.0f - follow) + follow * lvlN) * (1.0f - duck * lvlN);
                 nl *= g; nr *= g;
             }
+            vizAcc.noiseMin = std::min(vizAcc.noiseMin, nl);
+            vizAcc.noiseMax = std::max(vizAcc.noiseMax, nl);
             if (!p.noisePost) { xl += nl; xr += nr; }
 
             const float aD = lastAmt[mDistort], aG = lastAmt[mDigital];
@@ -784,6 +829,8 @@ private:
             xr = digital.process(1, xr, aG, p.digMix * 0.01f);
             wobble.process(xl, xr, lastAmt[mWobble], p.wobBalance * 0.01f, c_wowRate, c_flutRate, p.wobStereo * 0.01f, p.wobMix * 0.01f);
             magnetic.process(xl, xr, lastAmt[mMagnetic], p.magBalance * 0.01f, p.magRate, p.magDropouts * 0.01f, p.magStereo * 0.01f);
+            vizAcc.wobDelayMs = wobble.getLastDelayMs();
+            vizAcc.magGain = std::min(vizAcc.magGain, magnetic.getLastGain());
             tmpL[(size_t) i] = xl; tmpR[(size_t) i] = xr;
             postNoiseL[(size_t) i] = p.noisePost ? nl : 0.0f;
             postNoiseR[(size_t) i] = p.noisePost ? nr : 0.0f;
@@ -855,6 +902,7 @@ private:
     float followEnv = 0.0f, envAtk = 0.01f, envRel = 0.001f;
     int ctlCounter = 0;
     bool firstCtl = true;
+    Viz vizAcc;
     std::array<float, kBlock> tmpL {}, tmpR {}, postNoiseL {}, postNoiseR {}, eqL {}, eqR {}, stL {}, stR {};
 };
 } // namespace scour

@@ -186,6 +186,32 @@ DecimulScourEditor::DecimulScourEditor(DecimulScourProcessor& p)
                   { ParamIDs::magFlux.toRawUTF8(), "FLUX", " %", "Flux: a slow random drift that moves the amount.", "Flux: una deriva aleatoria lenta que mueve la cantidad." } },
                 "Turns the magnetic tape module on or off.", "Prende o apaga el módulo de cinta magnética.");
 
+    // ---- visualizadores de cada módulo (el dibujo de arriba de la columna) ----
+    {
+        using K = ModuleViz::Kind;
+        const K kinds[] = { K::noise, K::wobble, K::distort, K::digital, K::space, K::magnetic };
+        const char* en[] = {
+            "The noise being generated: its waveform, with the crackle of the vinyl or the bursts of static. It scales itself so you can see it at any level.",
+            "How far the wobble is moving the delay: a slow wave for the wow, with the fast flutter riding on it. A flat line means no pitch movement.",
+            "The curve of the distortion: input across, output up. The diagonal is no distortion; the more drive, the more it bends and flattens. Each type has its own shape.",
+            "A sine wave as the digital module leaves it: the steps are the lower sample rate, and the coarse levels are the fewer bits. The grey line is the original.",
+            "The tail of the reverb: the first bar is the direct sound, then the predelay gap, then the decay. A longer decay makes a longer tail.",
+            "The level of the tape over the last few seconds. Red marks are the dropouts, the sudden dips in volume." };
+        const char* es[] = {
+            "El ruido que se está generando: su forma de onda, con los chasquidos del vinilo o las ráfagas de la estática. Se escala sola para verse a cualquier nivel.",
+            "Cuánto mueve el wobble al retardo: una onda lenta para el wow, con el flutter rápido encima. Una línea plana es que no hay movimiento de tono.",
+            "La curva de la distorsión: entrada a lo ancho, salida hacia arriba. La diagonal es sin distorsión; con más drive se dobla y se aplana. Cada tipo tiene su forma.",
+            "Una onda sinusoidal como la deja el módulo digital: los escalones son la frecuencia de muestreo más baja y los niveles gruesos son los menos bits. La línea gris es la original.",
+            "La cola del reverb: la primera barra es el sonido directo, después el hueco del predelay y después la caída. Más decay es una cola más larga.",
+            "El nivel de la cinta en los últimos segundos. Las marcas rojas son las caídas, los bajones bruscos de volumen." };
+        for (size_t i = 0; i < modules.size(); ++i)
+        {
+            modules[i].viz = std::make_unique<ModuleViz>(kinds[i], processorRef.apvts);
+            addAndMakeVisible(*modules[i].viz);
+            tips.add(*modules[i].viz, en[i], es[i]);
+        }
+    }
+
     // ---- globales ----
     addKnob(magnitudeKnob, ParamIDs::magnitude, "MAGNITUDE", " %", true,
             "Magnitude: scales the amount of every module at once. 100 % is what the module knobs say, 0 % turns all the effects off.",
@@ -223,9 +249,9 @@ DecimulScourEditor::DecimulScourEditor(DecimulScourProcessor& p)
     tips.add(outputSlider, "Output gain, -24 to +12 dB.", "Ganancia de salida, -24 a +12 dB.");
     tips.add(bypassButton, "Bypass: the audio passes through untouched (the dot goes grey).", "Bypass: el audio pasa sin tocarse (el punto se pone gris).");
 
-    setSize(1260, 680);
+    setSize(1260, 750);
     setResizable(true, true);
-    setResizeLimits(1100, 620, 1800, 1000);
+    setResizeLimits(1100, 690, 1800, 1050);
     startTimerHz(30);
 }
 
@@ -282,6 +308,8 @@ void DecimulScourEditor::layoutModule(ModuleUi& m)
     m.led.setBounds(head.removeFromLeft(24).reduced(2));
     head.removeFromLeft(2);
     m.titleLabel.setBounds(head);
+    m.viz->setBounds(col.removeFromTop(60));
+    col.removeFromTop(4);
 
     if (m.hasSelector)
     {
@@ -393,6 +421,8 @@ void DecimulScourEditor::timerCallback()
         {
             mins[i] = frames[i].minV;
             maxs[i] = frames[i].maxV;
+            for (auto& m : modules)
+                m.viz->pushFrame(frames[i]);
         }
         scope.pushFrames(mins, maxs, count);
         if (count < 256)
@@ -416,5 +446,8 @@ void DecimulScourEditor::timerCallback()
     vuArc.repaint();
     bypassButton.repaint();
     for (auto& m : modules)
+    {
         m.led.repaint();
+        m.viz->repaint();
+    }
 }

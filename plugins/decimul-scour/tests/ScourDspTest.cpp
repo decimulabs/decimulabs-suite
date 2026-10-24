@@ -498,6 +498,53 @@ int main(int argc, char** argv)
         check(maxDiff < 1.0e-5, "MIX 0: sale la entrada", num(maxDiff, 7));
     }
 
+    // ---------- Datos para los visualizadores ----------
+    {
+        auto in = tone(ms(6000.0), 440.0, -12.0f);
+        auto run1 = [&](const Params& pp, ScourEngine::Viz& worst, float& wobMin, float& wobMax)
+        {
+            ScourEngine e;
+            e.prepare(sr);
+            e.setParams(pp);
+            auto l = in, r = in;
+            wobMin = 1e9f; wobMax = -1e9f;
+            worst = {};
+            worst.magGain = 1.0f;
+            for (int s = 0; s + 128 <= (int) in.size(); s += 128)
+            {
+                e.process(l.data() + s, r.data() + s, 128);
+                const auto v = e.takeViz();
+                worst.noiseMin = std::min(worst.noiseMin, v.noiseMin);
+                worst.noiseMax = std::max(worst.noiseMax, v.noiseMax);
+                worst.magGain = std::min(worst.magGain, v.magGain);
+                if (s > ms(300.0)) { wobMin = std::min(wobMin, v.wobDelayMs); wobMax = std::max(wobMax, v.wobDelayMs); }
+            }
+        };
+        ScourEngine::Viz v; float wmin, wmax;
+        Params p = neutral(); p.noiseAmt = 100.0f; p.noiseType = 1;
+        run1(p, v, wmin, wmax);
+        check(v.noiseMax > 0.01f && v.noiseMin < -0.01f, "Visualizador de ruido: entrega los extremos del ruido", num(v.noiseMin, 3) + " / " + num(v.noiseMax, 3));
+        p = neutral(); p.wobAmt = 100.0f; p.wobBalance = 0.0f; p.wowRate = 3.0f;
+        run1(p, v, wmin, wmax);
+        check(wmax - wmin > 1.0f && wmin > 0.0f, "Visualizador de wobble: el retardo se mueve", num(wmin, 2) + " a " + num(wmax, 2) + " ms");
+        p = neutral(); p.magAmt = 100.0f; p.magDropouts = 100.0f; p.magBalance = 50.0f;
+        run1(p, v, wmin, wmax);
+        check(v.magGain < 0.5f, "Visualizador de cinta: entrega las caídas de ganancia", num(v.magGain, 2));
+        p = neutral();
+        run1(p, v, wmin, wmax);
+        check(v.noiseMax == 0.0f && v.magGain == 1.0f && wmax == 0.0f, "Visualizadores con todo en 0: planos");
+        // forma de la distorsion: tubo asimétrico, cinta simétrica, pliegue acotado
+        float k, comp;
+        Distortion::driveFor(1.0f, k, comp);
+        check(std::abs(Distortion::shape(0, 0.8f) + Distortion::shape(0, -0.8f)) > 0.05f, "Distorsión tubo: curva asimétrica");
+        check(std::abs(Distortion::shape(1, 0.8f) + Distortion::shape(1, -0.8f)) < 1.0e-5f, "Distorsión cinta: curva simétrica");
+        bool bounded = true;
+        for (int t2 = 0; t2 < 4; ++t2)
+            for (float x = -1.0f; x <= 1.0f; x += 0.05f)
+                if (std::abs(Distortion::shape(t2, x * k) * comp) > 1.2f) bounded = false;
+        check(bounded && k > 10.0f, "Distorsión: las cuatro curvas quedan acotadas al drive máximo");
+    }
+
     // ---------- Magnitude y Flux ----------
     {
         auto in = tone(n, 1000.0, -12.0f);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "ModuleViz.h"
 #include "ScopeView.h"
 #include <DecimuLookAndFeel.h>
 #include <DecimuChrome.h>
@@ -48,6 +49,7 @@ private:
         DecimuLedButton led;
         std::unique_ptr<ButtonAttachment> ledAttachment;
         juce::Label titleLabel;
+        std::unique_ptr<ModuleViz> viz;
         DecimuLedStackSelector selector;
         bool hasSelector = false;
         int typeCount = 0;

@@ -188,11 +188,11 @@ void DecimulScourProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     for (int ch = 0; ch < numChannels; ++ch)
         inPeak = std::max(inPeak, buffer.getMagnitude(ch, 0, n));
 
-    constexpr int chunk = 512;
-    float dryL[chunk], dryR[chunk], monoR[chunk];
-    for (int start = 0; start < n; start += chunk)
+    // un cuadro de pantalla por cada tramo de 128 muestras
+    float dryL[frameChunk], dryR[frameChunk], monoR[frameChunk];
+    for (int start = 0; start < n; start += frameChunk)
     {
-        const int len = std::min(chunk, n - start);
+        const int len = std::min(frameChunk, n - start);
         std::copy(L + start, L + start + len, dryL);
         if (R != nullptr)
             std::copy(R + start, R + start + len, dryR);
@@ -207,32 +207,25 @@ void DecimulScourProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             for (int i = 0; i < len; ++i)
                 L[start + i] = 0.5f * (L[start + i] + monoR[i]);
         }
+        const auto viz = engine.takeViz();
 
+        float lo = 0.0f, hi = 0.0f;
         for (int i = 0; i < len; ++i)
         {
             const float byp = smBypass.getNextValue();
             L[start + i] = L[start + i] * (1.0f - byp) + dryL[i] * byp;
             if (R != nullptr)
                 R[start + i] = R[start + i] * (1.0f - byp) + dryR[i] * byp;
+            lo = std::min(lo, L[start + i]);
+            hi = std::max(hi, L[start + i]);
         }
 
-        // cuadros de la pantalla: mínimo y máximo de la salida izquierda cada 128 muestras
-        for (int f = 0; f < len; f += frameChunk)
+        int s1 = 0, z1 = 0, s2 = 0, z2 = 0;
+        frameFifo.prepareToWrite(1, s1, z1, s2, z2);
+        if (z1 > 0)
         {
-            const int m = std::min(frameChunk, len - f);
-            float lo = 0.0f, hi = 0.0f;
-            for (int i = 0; i < m; ++i)
-            {
-                lo = std::min(lo, L[start + f + i]);
-                hi = std::max(hi, L[start + f + i]);
-            }
-            int s1 = 0, z1 = 0, s2 = 0, z2 = 0;
-            frameFifo.prepareToWrite(1, s1, z1, s2, z2);
-            if (z1 > 0)
-            {
-                frameBuffer[(size_t) s1] = { lo, hi };
-                frameFifo.finishedWrite(1);
-            }
+            frameBuffer[(size_t) s1] = { lo, hi, viz.noiseMin, viz.noiseMax, viz.wobDelayMs, viz.magGain };
+            frameFifo.finishedWrite(1);
         }
     }
 

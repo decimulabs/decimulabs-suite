@@ -76,7 +76,13 @@ public:
     std::atomic<float> inputPeakDb { -100.0f };
     std::atomic<float> outputPeakDb { -100.0f };
 
-    struct Frame { float minV = 0.0f, maxV = 0.0f; };
+    struct Frame
+    {
+        float minV = 0.0f, maxV = 0.0f;               // onda de salida
+        float noiseMin = 0.0f, noiseMax = 0.0f;       // ruido generado
+        float wobDelayMs = 0.0f;                      // retardo del wobble
+        float magGain = 1.0f;                         // ganancia de la cinta
+    };
 
     /** Saca los cuadros nuevos de la onda de salida (hilo de la UI). */
     int readFrames(Frame* dest, int maxFrames);
