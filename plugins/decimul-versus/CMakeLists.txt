@@ -19,7 +19,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../shared ${CMAKE_CURRENT_BINARY
 # El nombre del producto lleva "(AB)" y no "A/B": la barra no es válida en el nombre de
 # carpeta del .vst3 en Windows. En la UI sí se puede escribir "A/B".
 juce_add_plugin(DecimulVersus
-    COMPANY_NAME "decimulabs"
+    COMPANY_NAME "DecimuLabs"
     COMPANY_WEBSITE "https://www.decimulabs.com"
     COMPANY_COPYRIGHT "decimulabs"
     PLUGIN_MANUFACTURER_CODE Dcml

@@ -17,7 +17,7 @@ FetchContent_MakeAvailable(JUCE)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../shared ${CMAKE_CURRENT_BINARY_DIR}/decimu-shared)
 
 juce_add_plugin(DecimulGap
-    COMPANY_NAME "decimulabs"
+    COMPANY_NAME "DecimuLabs"
     COMPANY_WEBSITE "https://www.decimulabs.com"
     COMPANY_COPYRIGHT "decimulabs"
     PLUGIN_MANUFACTURER_CODE Dcml
