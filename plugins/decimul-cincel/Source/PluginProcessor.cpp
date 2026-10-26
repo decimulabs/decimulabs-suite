@@ -199,6 +199,7 @@ void DecimulCincelProcessor::fillGlobals(cincel::GlobalParams& g) const
     g.phaseInvert = rawPhase->load() > 0.5f;
     g.bypass = rawBypass->load() > 0.5f;
     g.soloBand = soloBand.load();
+    g.reserveSpectral = reserveSpectral.load();
 }
 
 void DecimulCincelProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -255,6 +256,7 @@ int DecimulCincelProcessor::predictedLatency() const
     bool spectral = false;
     for (const auto& x : b)
         spectral = spectral || cincel::usesSpectral(x);
+    spectral = spectral || reserveSpectral.load();
     const auto m = (cincel::Mode) juce::jlimit(0, 2, (int) std::lround(rawMode->load()));
     const int res = juce::jlimit(0, cincel::numLpResolutions - 1, (int) std::lround(rawLpRes->load()));
     return engine.latencyFor(m, res, spectral);
@@ -367,6 +369,12 @@ void DecimulCincelProcessor::setGlobal(const juce::String& id, float plainValue)
     p->beginChangeGesture();
     p->setValueNotifyingHost(p->convertTo0to1(plainValue));
     p->endChangeGesture();
+}
+
+void DecimulCincelProcessor::setReserveSpectral(bool reserve)
+{
+    reserveSpectral.store(reserve);
+    uiState().setProperty("specReserve", reserve, nullptr);
 }
 
 juce::ValueTree DecimulCincelProcessor::uiState()
@@ -567,6 +575,7 @@ void DecimulCincelProcessor::setStateInformation(const void* data, int sizeInByt
             auto tree = juce::ValueTree::fromXml(*xml);
             currentPresetName = tree.getProperty("preset", "Init").toString();
             apvts.replaceState(tree);
+            reserveSpectral.store((bool) uiState().getProperty("specReserve", false));
         }
 }
 

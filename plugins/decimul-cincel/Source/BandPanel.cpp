@@ -124,8 +124,8 @@ void BandPanel::registerTips()
              "Umbral automático: sigue el nivel promedio de la zona, así solo los picos por encima hacen actuar a la banda.");
     tips.add(scPill, "The dynamics listen to the external sidechain instead of this track (route a sidechain to the plugin in your DAW).",
              "La dinámica escucha el sidechain externo en vez de esta pista (hay que rutear un sidechain al plugin en el DAW).");
-    tips.add(specPill, "Spectral dynamics: inside the band each frequency is compressed on its own, so a resonance that comes and goes is tamed without touching its neighbours. Adds latency.",
-             "Dinámica espectral: dentro de la banda cada frecuencia se comprime por su cuenta, así una resonancia que aparece y desaparece se baja sin tocar a sus vecinas. Suma latencia.");
+    tips.add(specPill, "Spectral dynamics: inside the band each frequency is compressed on its own, so a resonance that comes and goes is tamed without touching its neighbours. Adds latency (about 43 ms): if switching it during playback causes a jump, reserve that latency in the analyzer menu (right-click on the graph).",
+             "Dinámica espectral: dentro de la banda cada frecuencia se comprime por su cuenta, así una resonancia que aparece y desaparece se baja sin tocar a sus vecinas. Suma latencia (unos 43 ms): si al prenderlo con la música sonando hay un salto, reservá esa latencia en el menú del analizador (clic derecho en el gráfico).");
     tips.add(soloPill, "Solo: listen only to this band's zone. In cuts and notch you hear what is being removed. Tip: hold Alt while dragging a band.",
              "Solo: se escucha solo la zona de esta banda. En cortes y notch se escucha lo que se está sacando. Tip: mantené Alt mientras arrastrás una banda.");
     tips.add(onPill, "Turns the band on or off (also: double-click its dot).", "Prende o apaga la banda (también: doble clic en su punto).");

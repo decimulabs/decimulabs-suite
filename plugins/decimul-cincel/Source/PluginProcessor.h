@@ -82,6 +82,11 @@ public:
     float globalValue(const juce::String& id) const { return apvts.getRawParameterValue(id)->load(); }
     void setGlobal(const juce::String& id, float plainValue);
 
+    /** Latencia espectral siempre reservada: prender SPEC no cambia la latencia (no hay salto).
+        Se guarda con el proyecto (en el estado de la pantalla). */
+    void setReserveSpectral(bool reserve);
+    bool getReserveSpectral() const { return reserveSpectral.load(); }
+
     // ---- Escuchar una banda sola (no es parámetro: no se automatiza) ----
     std::atomic<int> soloBand { -1 };
 
@@ -137,6 +142,7 @@ private:
     std::atomic<float>* rawBypass = nullptr;
 
     cincel::Engine engine;
+    std::atomic<bool> reserveSpectral { false };
     std::array<cincel::BandParams, cincel::maxBands> audioBands {};
     double currentRate = 48000.0;
     bool stereoLayout = true;

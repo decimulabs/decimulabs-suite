@@ -384,6 +384,47 @@ void testLatencyAndBypass()
     }
 }
 
+void testLatencyChanges()
+{
+    // Prender SPEC con la música sonando: sin reserva cambia la latencia, pero no debe quedar un
+    // hueco de silencio (sale la señal seca mientras se llena); con reserva la latencia no cambia.
+    for (bool reserve : { false, true })
+    {
+        Rig r(48000.0);
+        r.g.reserveSpectral = reserve;
+        r.bands[0] = band(Shape::Bell, 2000.0, 0.0, 1.0);
+        // Un segundo de música antes del cambio (como pasa de verdad), después se prende SPEC.
+        const int pre = 48000, n = 96000;
+        auto L = sine(48000.0, 300.0, 0.5, n);
+        auto R = L;
+        for (size_t s = 0; s < (size_t) pre; s += block)
+            r.e.process(L.data() + s, R.data() + s, nullptr, nullptr, block, r.bands.data(), r.g);
+        const int before = r.e.latency();
+        r.bands[0].dynamic = true;
+        r.bands[0].spectral = true;
+        r.bands[0].thresholdDb = 0.0;
+        int longestQuiet = 0, quiet = 0;
+        for (size_t s = pre; s < L.size(); s += block)
+        {
+            const int len = (int) std::min<size_t>(block, L.size() - s);
+            r.e.process(L.data() + s, R.data() + s, nullptr, nullptr, len, r.bands.data(), r.g);
+            for (int i = 0; i < len; ++i)
+            {
+                quiet = std::abs(L[s + (size_t) i]) < 1.0e-3f ? quiet + 1 : 0;
+                longestQuiet = std::max(longestQuiet, quiet);
+            }
+        }
+        const int after = r.e.latency();
+        // Un seno de 300 Hz cruza por cero cada 80 muestras: más que eso es un hueco de verdad.
+        if (reserve)
+            check(before == after && before == 2048 && longestQuiet < 40, "Latencia espectral reservada: prender SPEC no cambia la latencia",
+                  std::to_string(before) + " -> " + std::to_string(after) + " muestras");
+        else
+            check(before == 0 && after == 2048 && longestQuiet < 600, "Prender SPEC sin reserva: el cambio no deja un hueco de silencio",
+                  "silencio más largo " + fmt(longestQuiet / 48.0, 1) + " ms (la latencia nueva son 42.7 ms)");
+    }
+}
+
 void testLinearPhaseIsSymmetric()
 {
     Rig r(48000.0);
@@ -836,6 +877,7 @@ int main()
     testModesFollowAnalog();
     testLatencyAndBypass();
     testLinearPhaseIsSymmetric();
+    testLatencyChanges();
     testDynamics();
     testSoloAndStereo();
     testSpectral();

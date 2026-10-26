@@ -160,6 +160,8 @@ int main(int argc, char** argv)
             editor->setSize(shotSize.upToFirstOccurrenceOf("x", false, false).getIntValue(),
                             shotSize.fromFirstOccurrenceOf("x", false, false).getIntValue());
         auto* ed = dynamic_cast<DecimulCincelEditor*>(editor.get());
+        if (const auto sc = juce::SystemStats::getEnvironmentVariable("DECIMU_SHOT_SCALE", {}); sc.isNotEmpty())
+            ed->setUiScale(sc.getFloatValue());
         if (variant == "match")
             ed->openMatchPanel(true);
 
@@ -453,6 +455,47 @@ int main(int argc, char** argv)
             ed->openMatchPanel(false);
             check(!moved && apart && matchApart, "Panel de banda fijo: no salta al mover la ganancia y no tapa el gráfico",
                   before.toString() + (moved ? " (se movió)" : ""));
+        }
+
+        // Teclado: solo la pantalla toma el foco (los botones no se comen la barra espaciadora del DAW).
+        {
+            int grabbers = 0;
+            juce::String names;
+            std::function<void(juce::Component&)> walk = [&](juce::Component& c)
+            {
+                for (auto* ch : c.getChildren())
+                {
+                    // Botones, menús y perillas son los que reaccionan a la barra espaciadora o a las flechas.
+                    const bool actsOnKeys = dynamic_cast<juce::Button*>(ch) != nullptr || dynamic_cast<juce::ComboBox*>(ch) != nullptr
+                                            || dynamic_cast<juce::Slider*>(ch) != nullptr;
+                    if (ch != &d && actsOnKeys && ch->getWantsKeyboardFocus() && ch->isVisible())
+                        { ++grabbers; names << typeid(*ch).name() << "/" << ch->getParentComponent()->getComponentID() << " "; }
+                    walk(*ch);
+                }
+            };
+            walk(*ed);
+            check(grabbers == 0 && d.getWantsKeyboardFocus() && !d.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey)),
+                  "Teclado: ningún control se queda con la barra espaciadora (la pantalla la deja pasar)",
+                  juce::String(grabbers) + " controles que toman el foco " + names);
+        }
+
+        // Tamaño: al 75 % la ventana se achica y adentro todo sigue con el mismo armado.
+        {
+            ed->setUiScale(1.0f);
+            pump(30);
+            const auto logical = d.getBounds();
+            ed->setUiScale(0.75f);
+            pump(30);
+            check(ed->getWidth() == 960 && ed->getHeight() == 645 && d.getBounds() == logical, "Tamaño: la interfaz se escala entera (ventana chica, mismo armado)",
+                  logical.toString() + " -> " + d.getBounds().toString());
+        }
+
+        // Sin audio, el analizador deja de recalcular (y la pantalla de redibujarse).
+        {
+            pump(2600);
+            const auto v1 = p->postAnalyzer.version;
+            pump(700);
+            check(p->postAnalyzer.version == v1, "Reposo: sin audio el analizador se queda quieto (no gasta CPU)");
         }
 
         // Sketch: un trazo arma las bandas.

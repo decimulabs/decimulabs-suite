@@ -375,6 +375,10 @@ DecimulCincelEditor::DecimulCincelEditor(DecimulCincelProcessor& p)
     abB.onClick = [this] { if (processorRef.currentAB() != 1) processorRef.switchAB(); };
     abCopy.onClick = [this] { processorRef.copyCurrentToOther(); };
     undoButton.onClick = [this] { processorRef.undoManager.undo(); };
+    addAndMakeVisible(sizeButton);
+    sizeButton.onClick = [this] { showSizeMenu(); };
+    tips.add(sizeButton, "Size of the window (the whole interface scales). It is saved with the project.",
+             "Tamaño de la ventana (se escala toda la interfaz). Se guarda con el proyecto.");
     redoButton.onClick = [this] { processorRef.undoManager.redo(); };
     addAndMakeVisible(bypassButton);
     addAndMakeVisible(vuArc);
@@ -487,10 +491,53 @@ DecimulCincelEditor::DecimulCincelEditor(DecimulCincelProcessor& p)
              "Mouse: double-click = new band (near the edges, a cut). Drag a dot = frequency and gain (Ctrl = fine; on cuts, vertical = Q). Wheel = Q; Alt+wheel = dynamic range. Alt while dragging = listen to the band alone. Double-click a dot = on/off. Right-click = band menu. Drag on empty space = select several; Shift+click = add. Delete key = delete. Grab a peak of the spectrum = new band right there.",
              "Mouse: doble clic = banda nueva (cerca de los bordes, un corte). Arrastrar un punto = frecuencia y ganancia (Ctrl = fino; en los cortes, vertical = Q). Rueda = Q; Alt+rueda = rango dinámico. Alt mientras arrastrás = escuchar la banda sola. Doble clic en un punto = prender/apagar. Clic derecho = menú de la banda. Arrastrar en el vacío = elegir varias; Shift+clic = sumar. Supr = borrar. Agarrar un pico del espectro = banda nueva justo ahí.");
 
-    setWantsKeyboardFocus(true);
-    setSize(1280, 860);
+    // Teclado: solo la pantalla lo toma (para Supr y Ctrl+A); botones, perillas y menús no, así
+    // la barra espaciadora y los atajos del DAW siguen andando después de tocar cualquier control.
+    // Las teclas que el plugin no usa, JUCE se las pasa al DAW.
+    std::function<void(juce::Component&)> noFocus = [&](juce::Component& parent)
+    {
+        for (auto* c : parent.getChildren())
+        {
+            if (c != &display)
+            {
+                c->setWantsKeyboardFocus(false);
+                c->setMouseClickGrabsKeyboardFocus(false);
+            }
+            noFocus(*c);
+        }
+    };
+    noFocus(*this);
+    setWantsKeyboardFocus(false);
+
+    // Todo lo de adentro pasa al contenedor escalado (la ventana de tooltips queda afuera).
+    inner.painter = [this](juce::Graphics& g) { paintContent(g); };
+    inner.onResize = [this] { layoutContent(inner.getLocalBounds()); };
+    juce::Array<juce::Component*> kids;
+    for (auto* c : getChildren())
+        if (dynamic_cast<juce::TooltipWindow*>(c) == nullptr)
+            kids.add(c);
+    for (auto* c : kids)
+    {
+        const bool visible = c->isVisible();
+        removeChildComponent(c);
+        inner.addChildComponent(c);
+        c->setVisible(visible);
+    }
+    addAndMakeVisible(inner);
+
+    // Tamaño: el que se usó la última vez; si no, según la pantalla (que entre en una notebook).
+    float scale = (float) (double) processorRef.uiState().getProperty("uiScale", 0.0);
+    if (scale <= 0.0f)
+    {
+        scale = 1.0f;
+        if (auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        {
+            const int h = d->userArea.getHeight();
+            scale = h < 820 ? 0.75f : (h < 980 ? 0.9f : 1.0f);
+        }
+    }
     setResizable(true, true);
-    setResizeLimits(1040, 720, 2400, 1500);
+    applyScale(scale, baseWidth, baseHeight);
     updateLanguage();
     startTimerHz(30);
 }
@@ -609,9 +656,38 @@ bool DecimulCincelEditor::keyPressed(const juce::KeyPress& key)
     return false;
 }
 
+void DecimulCincelEditor::applyScale(float scale, int logicalWidth, int logicalHeight)
+{
+    uiScale = juce::jlimit(0.5f, 2.0f, scale);
+    processorRef.uiState().setProperty("uiScale", uiScale, nullptr);
+    sizeButton.setButtonText(juce::String(juce::roundToInt(uiScale * 100.0f)) + "%");
+    setResizeLimits(juce::roundToInt(1040 * uiScale), juce::roundToInt(720 * uiScale),
+                    juce::roundToInt(2400 * uiScale), juce::roundToInt(1500 * uiScale));
+    setSize(juce::roundToInt(logicalWidth * uiScale), juce::roundToInt(logicalHeight * uiScale));
+}
+
+void DecimulCincelEditor::showSizeMenu()
+{
+    juce::PopupMenu m;
+    const float sizes[] = { 0.75f, 0.9f, 1.0f, 1.15f, 1.25f, 1.5f };
+    for (int i = 0; i < 6; ++i)
+        m.addItem(i + 1, juce::String(juce::roundToInt(sizes[i] * 100.0f)) + " %", true, std::abs(sizes[i] - uiScale) < 0.01f);
+    juce::Component::SafePointer<DecimulCincelEditor> safe(this);
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&sizeButton), [safe, sizes](int r)
+    {
+        if (safe != nullptr && r > 0)
+            safe->applyScale(sizes[r - 1], safe->inner.getWidth(), safe->inner.getHeight());
+    });
+}
+
 void DecimulCincelEditor::paint(juce::Graphics& g)
 {
-    auto full = getLocalBounds().toFloat();
+    g.fillAll(DecimuColours::background);
+}
+
+void DecimulCincelEditor::paintContent(juce::Graphics& g)
+{
+    auto full = inner.getLocalBounds().toFloat();
     DecimuChrome::paintChassisBackground(g, full, 14.0f);
     DecimuChrome::paintRackHandles(g, full);
     DecimuChrome::paintCornerScrews(g, full, 12.0f);
@@ -640,21 +716,28 @@ void DecimulCincelEditor::paint(juce::Graphics& g)
 
     g.setColour(DecimuColours::textMuted);
     g.setFont(lookAndFeel.monoFont(13.0f));
-    auto footer = getLocalBounds().removeFromBottom(22).reduced(16, 3);
+    auto footer = inner.getLocalBounds().removeFromBottom(22).reduced(16, 3);
     g.drawText("DECIMULABS - CINCEL EQ - GPLv3", footer, juce::Justification::centredLeft);
     g.drawText("decimulabs.com", footer, juce::Justification::centredRight);
 }
 
 void DecimulCincelEditor::layoutOverlays()
 {
-    resized();
+    layoutContent(inner.getLocalBounds());
 }
 
 void DecimulCincelEditor::resized()
 {
-    tips.layout(getLocalBounds());
+    inner.setTransform({});
+    inner.setBounds(0, 0, juce::roundToInt(getWidth() / uiScale), juce::roundToInt(getHeight() / uiScale));
+    inner.setTransform(juce::AffineTransform::scale(uiScale));
+}
 
-    auto content = getLocalBounds().reduced(22, 18);
+void DecimulCincelEditor::layoutContent(juce::Rectangle<int> bounds)
+{
+    tips.layout(bounds);
+
+    auto content = bounds.reduced(22, 18);
     content.removeFromBottom(8);
     topbarRect = content.removeFromTop(54);
     content.removeFromTop(8);
@@ -692,6 +775,8 @@ void DecimulCincelEditor::resized()
     redoButton.setBounds(header.removeFromRight(86).reduced(0, 3));
     header.removeFromRight(4);
     undoButton.setBounds(header.removeFromRight(96).reduced(0, 3));
+    header.removeFromRight(8);
+    sizeButton.setBounds(header.removeFromRight(60).reduced(0, 3));
     header.removeFromRight(14);
     abCopy.setBounds(header.removeFromRight(52).reduced(0, 3));
     header.removeFromRight(4);
@@ -765,16 +850,26 @@ void DecimulCincelEditor::timerCallback()
     bandPanel.refresh();
 
     const float outDb = std::max(processorRef.outPeakL.load(), processorRef.outPeakR.load());
-    outputMeter.setLevelDb(outDb);
-    outputMeter.repaint();
-    vuArc.setLevelDb(outDb);
-    vuArc.repaint();
+    if (std::abs(outDb - lastMeterDb) > 0.2f)
+    {
+        lastMeterDb = outDb;
+        outputMeter.setLevelDb(outDb);
+        outputMeter.repaint();
+        vuArc.setLevelDb(outDb);
+        vuArc.repaint();
+    }
     bypassButton.repaint();
 
     const int lat = processorRef.latencySamples();
     const double ms = 1000.0 * lat / processorRef.getSampleRateHz();
+    std::array<cincel::BandParams, cincel::maxBands> bandsNow;
+    processorRef.readAllBands(bandsNow);
+    bool spectralOn = processorRef.getReserveSpectral();
+    for (const auto& b : bandsNow)
+        spectralOn = spectralOn || cincel::usesSpectral(b);
     latencyLabel.setText(lat == 0 ? tr(spanish, "no latency", "sin latencia")
-                                  : juce::String(lat) + tr(spanish, " smp (", " muestras (") + juce::String(ms, 1) + " ms)",
+                                  : juce::String(lat) + tr(spanish, " smp (", " muestras (") + juce::String(ms, 1) + " ms"
+                                        + (spectralOn ? " + SPEC)" : ")"),
                          juce::dontSendNotification);
     resBox.setEnabled(processorRef.globalValue(CincelIDs::mode) > 1.5f);
     if (processorRef.globalValue(CincelIDs::autoGain) > 0.5f)

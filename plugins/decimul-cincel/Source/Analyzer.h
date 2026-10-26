@@ -98,6 +98,15 @@ public:
         fifo.finishedRead(z1 + z2);
         if (freeze)
             return false;
+        // Sin audio nuevo no hay nada que recalcular (la pantalla tampoco se redibuja).
+        if (z1 + z2 == 0)
+        {
+            if (++idleTicks > 60)
+                return false;
+        }
+        else
+            idleTicks = 0;
+        ++version;
 
         const int r = juce::jlimit(0, numResolutions - 1, resolution);
         auto& R = res[(size_t) r];
@@ -140,7 +149,10 @@ public:
         return z1 + z2 > 0;
     }
 
-    void clearPeaks() { peak.fill(-120.0f); }
+    void clearPeaks() { peak.fill(-120.0f); ++version; }
+
+    /** Cambia cada vez que los datos cambian (para no redibujar de más). */
+    unsigned version = 0;
 
     std::array<float, points> db {}, peak {};
     float level = -120.0f;
@@ -162,5 +174,6 @@ private:
     std::vector<float> fifoData, history, frame;
     std::vector<std::complex<float>> spec;
     int histPos = 0;
+    int idleTicks = 0;
     std::array<Resolution, numResolutions> res;
 };

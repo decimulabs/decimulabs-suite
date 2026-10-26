@@ -33,6 +33,7 @@ struct GlobalParams
     bool phaseInvert = false;
     bool bypass = false;
     int soloBand = -1;
+    bool reserveSpectral = false;  // dejar siempre reservada la latencia espectral (no salta al usar SPEC)
 };
 
 /** Ganancia que compensa el volumen que suma o quita la curva (no mide el audio: mira la curva,
@@ -234,6 +235,8 @@ public:
 
         first = true;
         fadeGain = 1.0;
+        warmup = 0;
+        wetMix = 1.0;
         switching = false;
         activeKernel = -1;
         smOut = smL = smR = 1.0;
@@ -326,6 +329,13 @@ private:
             spectral.reset();
         curLatency = configLatency(m, res, spec);
         latencyNow.store(curLatency);
+        // Mientras el proceso nuevo se llena (su latencia), sale la señal seca ya alineada: en vez
+        // de un hueco de silencio, unos milisegundos sin ecualizar.
+        if (!first)
+        {
+            warmup = curLatency + 64;
+            wetMix = 0.0;
+        }
     }
 
     static bool sameBand(const BandParams& a, const BandParams& b)
@@ -416,15 +426,18 @@ private:
         }
 
         // Configuración (cambia la latencia): primero se funde a silencio.
+        // Con la latencia espectral reservada, la etapa espectral corre siempre (sin bandas que la
+        // usen deja pasar el audio exacto) y la latencia no cambia al prender o apagar SPEC.
+        const bool wantSpectral = anySpectral || g.reserveSpectral;
         const Mode wantMode = g.mode;
         const int wantRes = std::clamp(g.lpResolution, 0, numLpResolutions - 1);
         if (first)
         {
-            applyConfig(wantMode, wantRes, anySpectral, eff.data(), g);
+            applyConfig(wantMode, wantRes, wantSpectral, eff.data(), g);
             first = false;
         }
         else if (!switching
-                 && (wantMode != curMode || (wantMode == Mode::LinearPhase && wantRes != curRes) || anySpectral != curSpectral))
+                 && (wantMode != curMode || (wantMode == Mode::LinearPhase && wantRes != curRes) || wantSpectral != curSpectral))
             switching = true;
 
         // Entrada a double; copia sin procesar (para la dinámica y la señal seca).
@@ -533,12 +546,23 @@ private:
             else if (fadeGain < 1.0)
                 fadeGain = std::min(1.0, fadeGain + fadeStep);
 
-            double yl = pl[i] * smOut * (st ? smL : 1.0);
+            if (warmup > 0)
+                --warmup;
+            if (warmup > 0)
+                wetMix = 0.0;
+            else if (wetMix < 1.0)
+                wetMix = std::min(1.0, wetMix + 0.5 * fadeStep);
+
+            const double gl = smOut * (st ? smL : 1.0);
+            double yl = pl[i] * gl;
+            yl = inL[(size_t) i] * gl + wetMix * (yl - inL[(size_t) i] * gl);
             yl = yl + smBypass * (inL[(size_t) i] - yl);
             L[i] = (float) (yl * fadeGain);
             if (st)
             {
-                double yr = pr[i] * smOut * smR;
+                const double gr = smOut * smR;
+                double yr = pr[i] * gr;
+                yr = inR[(size_t) i] * gr + wetMix * (yr - inR[(size_t) i] * gr);
                 yr = yr + smBypass * (inR[(size_t) i] - yr);
                 R[i] = (float) (yr * fadeGain);
             }
@@ -546,7 +570,7 @@ private:
 
         if (switching && fadeGain <= 0.0)
         {
-            applyConfig(wantMode, wantRes, anySpectral, eff.data(), g);
+            applyConfig(wantMode, wantRes, wantSpectral, eff.data(), g);
             switching = false;
         }
     }
@@ -587,6 +611,8 @@ private:
     std::atomic<int> latencyNow { 0 };
     bool first = true, switching = false;
     double fadeGain = 1.0;
+    int warmup = 0;
+    double wetMix = 1.0;
 
     std::vector<double> bufL, bufR, inL, inR, scL, scR, scratchA, scratchB;
     std::vector<double> delay[2];

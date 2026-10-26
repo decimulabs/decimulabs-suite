@@ -244,6 +244,32 @@ void EqDisplay::refresh()
 
     overlayValid = overlayInstance != 0 && InstanceRegistry::get().find(overlayInstance, overlay);
 
+    // ¿Cambió algo que se vea? Si no, no se redibuja (con varias instancias abiertas se nota).
+    {
+        juce::MemoryOutputStream sig;
+        for (const auto& b : bands)
+        {
+            sig.writeBool(b.used); sig.writeBool(b.enabled); sig.writeFloat(b.freq); sig.writeFloat(b.gainDb); sig.writeFloat(b.q);
+            sig.writeInt((int) b.shape); sig.writeInt(b.slope); sig.writeInt((int) b.place); sig.writeBool(b.dynamic);
+            sig.writeFloat(b.rangeDb); sig.writeBool(b.spectral);
+        }
+        for (float v : dynOffset)
+            sig.writeFloat(std::round(v * 20.0f));
+        sig.writeInt((int) (proc.preAnalyzer.version + proc.postAnalyzer.version * 7u + proc.scAnalyzer.version * 13u));
+        sig.writeDouble(gainScale);
+        sig.writeBool(gainQ);
+        sig.writeInt(proc.soloBand.load());
+        sig.writeInt(overlayValid ? (int) overlay.updatedMs : 0);
+        sig.writeInt((int) proc.uiState().getNumProperties());
+        for (int i = 0; i < proc.uiState().getNumProperties(); ++i)
+            sig.writeString(proc.uiState().getProperty(proc.uiState().getPropertyName(i)).toString());
+        const auto hash = juce::String::toHexString(sig.getData(), (int) sig.getDataSize()).hashCode64();
+        if (hash == lastSignature && !forceRepaint)
+            return;
+        lastSignature = hash;
+        forceRepaint = false;
+    }
+
     // La selección no puede apuntar a bandas borradas.
     selection.erase(std::remove_if(selection.begin(), selection.end(), [this](int i) { return !bands[(size_t) i].used; }), selection.end());
     if (primary >= 0 && !bands[(size_t) primary].used)
@@ -675,12 +701,10 @@ void EqDisplay::paintReadout(juce::Graphics& g, int i)
     if (!b.enabled)
         lines.add(tr(spanish, "(off)", "(apagada)"));
 
-    const float w = 178.0f, h = 8.0f + 15.0f * lines.size();
-    juce::Rectangle<float> box(c.x + 16.0f, c.y - h - 10.0f, w, h);
-    if (box.getRight() > plot.getRight())
-        box.setX(c.x - w - 16.0f);
-    if (box.getY() < plot.getY())
-        box.setY(c.y + 14.0f);
+    juce::ignoreUnused(c);
+    const float w = 190.0f, h = 8.0f + 15.0f * lines.size();
+    // Fija en la esquina de arriba a la izquierda: no sigue al punto, así nunca tapa otro.
+    juce::Rectangle<float> box(plot.getX() + 8.0f, plot.getY() + 8.0f, w, h);
     g.setColour(juce::Colour(0xee0b0d16));
     g.fillRoundedRectangle(box, 5.0f);
     g.setColour(bandColour(i).withAlpha(0.8f));
@@ -1190,6 +1214,9 @@ void EqDisplay::showBackgroundMenu()
     m.addSubMenu(tr(es, "Range", "Rango"), arange);
     m.addSeparator();
     m.addItem(6, tr(es, "Piano keyboard", "Teclado de piano"), true, (bool) ui.getProperty("piano", false));
+    m.addSeparator();
+    m.addItem(8, tr(es, "Keep spectral latency reserved (SPEC never changes the latency)",
+                    "Reservar la latencia espectral (SPEC nunca cambia la latencia)"), true, proc.getReserveSpectral());
     m.addItem(7, tr(es, "Delete all bands", "Borrar todas las bandas"));
 
     juce::Component::SafePointer<EqDisplay> safe(this);
@@ -1210,6 +1237,7 @@ void EqDisplay::showBackgroundMenu()
         else if (r == 4) { toggle("anaPeaks", false); safe->proc.postAnalyzer.clearPeaks(); }
         else if (r == 5) toggle("anaFreeze", false);
         else if (r == 6) toggle("piano", false);
+        else if (r == 8) safe->proc.setReserveSpectral(!safe->proc.getReserveSpectral());
         else if (r == 7)
         {
             safe->proc.undoManager.beginNewTransaction("Delete all");

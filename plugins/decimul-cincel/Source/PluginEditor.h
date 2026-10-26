@@ -80,6 +80,8 @@ public:
     EqDisplay& getDisplay() { return display; }
     BandPanel& getBandPanel() { return bandPanel; }
     void openMatchPanel(bool open);
+    /** Escala de toda la interfaz (0.75 = 75 %), con el tamaño base. */
+    void setUiScale(float scale) { applyScale(scale, baseWidth, baseHeight); }
 
 private:
     struct Knob
@@ -88,6 +90,22 @@ private:
         juce::Label label;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
     };
+
+    /** Todo el contenido va acá adentro, dibujado a escala (75 % a 150 %): así la interfaz entra
+        en pantallas chicas sin desarmarse. Es propia y no la del host, que la pisa al ajustar DPI. */
+    struct ScaledContent : juce::Component
+    {
+        std::function<void(juce::Graphics&)> painter;
+        std::function<void()> onResize;
+        void paint(juce::Graphics& g) override { if (painter) painter(g); }
+        void resized() override { if (onResize) onResize(); }
+    };
+
+    static constexpr int baseWidth = 1280, baseHeight = 860;
+    void applyScale(float scale, int logicalWidth, int logicalHeight);
+    void showSizeMenu();
+    void layoutContent(juce::Rectangle<int> bounds);
+    void paintContent(juce::Graphics&);
 
     void timerCallback() override;
     void addKnob(Knob& k, const juce::String& paramID, const juce::String& caption);
@@ -107,6 +125,11 @@ private:
     BandPanel bandPanel;
     MatchPanel matchPanel;
     InstancesPanel instancesPanel;
+
+    ScaledContent inner;
+    float uiScale = 1.0f;
+    float lastMeterDb = -200.0f;
+    DecimuPillButton sizeButton { "100%" };
 
     // Arriba
     DecimuPillButton presetButton { "Init" }, abA { "A" }, abB { "B" }, abCopy { "A>B" }, undoButton { "UNDO" }, redoButton { "REDO" };
