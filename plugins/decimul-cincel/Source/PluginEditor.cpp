@@ -717,7 +717,7 @@ void DecimulCincelEditor::paintContent(juce::Graphics& g)
     g.setColour(DecimuColours::textMuted);
     g.setFont(lookAndFeel.monoFont(13.0f));
     auto footer = inner.getLocalBounds().removeFromBottom(22).reduced(16, 3);
-    g.drawText("DECIMULABS - CINCEL EQ - GPLv3", footer, juce::Justification::centredLeft);
+    g.drawText("DECIMULABS - CINCEL EQ v" + juce::String(JucePlugin_VersionString).upToLastOccurrenceOf(".", false, false) + " - GPLv3", footer, juce::Justification::centredLeft);
     g.drawText("decimulabs.com", footer, juce::Justification::centredRight);
 }
 
