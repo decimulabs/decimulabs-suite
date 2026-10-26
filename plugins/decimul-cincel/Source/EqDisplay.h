@@ -90,6 +90,7 @@ private:
     void paintSpectra(juce::Graphics&);
     void paintCollisions(juce::Graphics&);
     void paintCurves(juce::Graphics&);
+    void paintSoloShade(juce::Graphics&);
     void paintDots(juce::Graphics&);
     void paintReadout(juce::Graphics&, int band);
     void paintPiano(juce::Graphics&);

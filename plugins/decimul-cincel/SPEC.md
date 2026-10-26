@@ -33,6 +33,8 @@ todo lo que el Pro-Q tiene". Nombre elegido por Marcelo el 24/10/2026.
 ganancia (-100 a 200 %), auto gain (por la curva, no por el audio), salida, balance, fase, bypass con
 la latencia compensada.
 
+**Panel de banda**: franja fija entre el gráfico y la barra de abajo (desde el 26/10, por feedback de un usuario: el panel flotante tapaba puntos y saltaba de lugar al mover la ganancia). Match e Instancias se abren en una columna al costado, tampoco encima. Con SOLO, la pantalla oscurece todo menos la franja que se escucha y marca sus bordes.
+
 **Pantalla**: analizador pre/post/sidechain (resolución, velocidad, inclinación 0-6 dB/oct, rango,
 retener picos, congelar), spectrum grab (agarrar un pico crea una banda ahí), zoom ±3/6/12/30 dB,
 teclado de piano, curvas por canal (L/R/S punteadas), dinámica en vivo, lectura con nota musical.

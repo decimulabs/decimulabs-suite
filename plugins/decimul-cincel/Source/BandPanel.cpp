@@ -149,6 +149,9 @@ void BandPanel::setBand(int index)
     for (auto* k : { &freq, &gain, &q, &range, &thr })
         k->attach.reset();
     band = index;
+    for (int i = 0; i < getNumChildComponents(); ++i)
+        getChildComponent(i)->setVisible(band >= 0);
+    repaint();
     if (band < 0)
         return;
 
@@ -255,57 +258,69 @@ void BandPanel::applyToOthers(CincelIDs::BandKey key, float plainValue)
 
 void BandPanel::placeKnob(Knob& k, juce::Rectangle<int> cell)
 {
-    k.label.setBounds(cell.removeFromTop(14));
-    const int side = std::min(cell.getWidth(), cell.getHeight() - 16);
-    k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, std::max(60, cell.getWidth()), 15);
-    k.slider.setBounds(cell.withSizeKeepingCentre(std::max(side, 60), side + 16));
+    // Rótulo arriba, perilla chica y el valor abajo, todo en la altura de la franja.
+    k.label.setBounds(cell.removeFromTop(13));
+    k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, std::max(58, cell.getWidth() - 4), 14);
+    k.slider.setBounds(cell);
 }
 
 void BandPanel::resized()
 {
-    auto r = getLocalBounds().reduced(10, 6);
-    auto top = r.removeFromTop(24);
-    prevButton.setBounds(top.removeFromLeft(24));
-    title.setBounds(top.removeFromLeft(78));
-    nextButton.setBounds(top.removeFromLeft(24));
-    top.removeFromLeft(10);
-    deletePill.setBounds(top.removeFromRight(30));
-    top.removeFromRight(6);
-    onPill.setBounds(top.removeFromRight(44));
-    top.removeFromRight(6);
-    soloPill.setBounds(top.removeFromRight(56));
-    top.removeFromRight(10);
-    const int w = top.getWidth() / 3;
-    shapeBox.setBounds(top.removeFromLeft(w).reduced(2, 0));
-    slopeBox.setBounds(top.removeFromLeft(w).reduced(2, 0));
-    placeBox.setBounds(top.reduced(2, 0));
+    // Una sola fila, siempre en el mismo lugar (abajo del gráfico, nunca encima):
+    // < BANDA n > | forma pendiente ubicación | FREQ GAIN Q | DYN RANGE THRESH AUTO SC SPEC | SOLO ON X
+    auto r = getLocalBounds().reduced(10, 5);
+    const int rowH = r.getHeight();
+    auto pill = [&](juce::Component& c, juce::Rectangle<int> cell, int w)
+    {
+        c.setBounds(cell.withSizeKeepingCentre(w, std::min(24, rowH)));
+    };
 
-    r.removeFromTop(6);
-    const int cell = std::min(76, r.getWidth() / 8);
+    pill(prevButton, r.removeFromLeft(24), 24);
+    title.setBounds(r.removeFromLeft(74));
+    pill(nextButton, r.removeFromLeft(24), 24);
+    r.removeFromLeft(10);
+
+    auto right = r.removeFromRight(164);
+    pill(soloPill, right.removeFromLeft(60), 56);
+    pill(onPill, right.removeFromLeft(56), 48);
+    pill(deletePill, right.removeFromLeft(40), 32);
+
+    auto boxes = r.removeFromLeft(std::min(300, r.getWidth() / 3));
+    const int bw = boxes.getWidth() / 3;
+    pill(shapeBox, boxes.removeFromLeft(bw), bw - 4);
+    pill(slopeBox, boxes.removeFromLeft(bw), bw - 4);
+    pill(placeBox, boxes, bw - 4);
+    r.removeFromLeft(8);
+
+    const int cell = std::min(70, r.getWidth() / 8);
     placeKnob(freq, r.removeFromLeft(cell));
     placeKnob(gain, r.removeFromLeft(cell));
     placeKnob(q, r.removeFromLeft(cell));
-    r.removeFromLeft(14);
-    auto dynCol = r.removeFromLeft(56).withSizeKeepingCentre(52, 26);
-    dynPill.setBounds(dynCol);
+    r.removeFromLeft(10);
+    pill(dynPill, r.removeFromLeft(56), 50);
     placeKnob(range, r.removeFromLeft(cell));
     placeKnob(thr, r.removeFromLeft(cell));
-    auto pills = r.reduced(4, 6);
-    const int ph = std::min(22, pills.getHeight() / 3 - 3);
-    autoPill.setBounds(pills.removeFromTop(ph).withWidth(64));
-    pills.removeFromTop(3);
-    scPill.setBounds(pills.removeFromTop(ph).withWidth(64));
-    pills.removeFromTop(3);
-    specPill.setBounds(pills.removeFromTop(ph).withWidth(64));
+    r.removeFromLeft(6);
+    const int pw = std::min(56, r.getWidth() / 3);
+    pill(autoPill, r.removeFromLeft(pw), pw - 4);
+    pill(scPill, r.removeFromLeft(pw), pw - 4);
+    pill(specPill, r.removeFromLeft(pw), pw - 4);
 }
 
 void BandPanel::paint(juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat().reduced(1.0f);
-    g.setColour(juce::Colour(0xf00b0d16));
-    g.fillRoundedRectangle(r, 8.0f);
     const auto col = band >= 0 ? EqDisplay::bandColour(band) : DecimuColours::textMuted;
-    g.setColour(col.withAlpha(0.7f));
-    g.drawRoundedRectangle(r, 8.0f, 1.2f);
-    g.fillRoundedRectangle(r.removeFromTop(3.0f).reduced(12.0f, 0.0f), 1.5f);
+    g.setColour(col.withAlpha(band >= 0 ? 0.9f : 0.4f));
+    g.fillRoundedRectangle(r.removeFromLeft(4.0f).reduced(0.0f, 6.0f), 2.0f);
+    if (band < 0)
+    {
+        g.setColour(DecimuColours::textMuted);
+        if (auto* laf = dynamic_cast<DecimuLookAndFeel*>(&getLookAndFeel()))
+            g.setFont(laf->monoFont(15.0f));
+        g.drawText(juce::String(juce::CharPointer_UTF8(spanish
+                       ? "Elegí una banda (clic en un punto) para ver sus controles acá. Doble clic en el gráfico: banda nueva."
+                       : "Click a dot to see its controls here. Double-click the graph: new band.")),
+                   getLocalBounds().reduced(16, 0), juce::Justification::centredLeft);
+    }
 }

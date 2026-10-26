@@ -78,6 +78,7 @@ public:
 
     /** Para las capturas de los tests. */
     EqDisplay& getDisplay() { return display; }
+    BandPanel& getBandPanel() { return bandPanel; }
     void openMatchPanel(bool open);
 
 private:
@@ -100,7 +101,7 @@ private:
     DecimuTooltips tips { *this };
 
     juce::Image wordmarkImage, dogImage;
-    juce::Rectangle<int> topbarRect, displayRect, bottomRect, headerLogoArea;
+    juce::Rectangle<int> topbarRect, displayRect, bandRect, sideRect, bottomRect, headerLogoArea;
 
     EqDisplay display;
     BandPanel bandPanel;
@@ -126,7 +127,6 @@ private:
     std::unique_ptr<ButtonAttachment> bypassAttach, gainQAttach, autoGainAttach, phaseAttach;
 
     bool spanish = false;
-    bool panelAtTop = false;
     int instanceRefreshCounter = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecimulCincelEditor)

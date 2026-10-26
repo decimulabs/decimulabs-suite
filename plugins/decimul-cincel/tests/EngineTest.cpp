@@ -150,6 +150,8 @@ int main(int argc, char** argv)
         }
         if (variant == "piano")
             p->uiState().setProperty("piano", true, nullptr);
+        if (variant == "solo")
+            p->soloBand.store(2);
         if (variant == "low")
             p->writeBand(5, bell(150.0f, -9.0f, 1.5f));
 
@@ -221,7 +223,9 @@ int main(int argc, char** argv)
         pump(150);
         check(p->getLatencySamples() == 64, "Fase natural: latencia informada", juce::String(p->getLatencySamples()) + " muestras");
 
-        // Y el audio sale con esa demora exacta.
+        // Y el audio sale con esa demora exacta. Como al exportar (offline): el FIR se arma en el
+        // acto, así el resultado no depende de qué tan ocupada esté la compu.
+        p->setNonRealtime(true);
         std::vector<float> l((size_t) n, 0.0f), r((size_t) n, 0.0f);
         l[2000] = r[2000] = 1.0f;
         setParam(*p, CincelIDs::mode, 2.0f);
@@ -424,6 +428,32 @@ int main(int argc, char** argv)
         const auto dot = d.pointFor(p->readBand(0).freq, p->readBand(0).gainDb);
         d.mouseDoubleClick(ev(dot, left, 2, false, dot));
         check(!p->readBand(0).enabled, "Mouse: doble clic en un punto apaga la banda");
+
+        // El panel de la banda es fijo: mover la ganancia de arriba a abajo no lo cambia de lugar,
+        // y nunca se superpone con el gráfico (ni Match / Instancias abiertos).
+        {
+            p->writeBand(0, bell(1000.0f, 9.0f, 1.0f));
+            d.selectOnly(0);
+            pump(100);
+            const auto before = ed->getBandPanel().getBounds();
+            bool moved = false;
+            for (float gdb : { 6.0f, 0.0f, -6.0f, -12.0f, 3.0f })
+            {
+                p->writeBand(0, bell(1000.0f, gdb, 1.0f));
+                pump(70);
+                moved = moved || ed->getBandPanel().getBounds() != before;
+            }
+            const bool apart = !ed->getBandPanel().getBounds().intersects(d.getBounds());
+            ed->openMatchPanel(true);
+            pump(50);
+            bool matchApart = true;
+            for (int i = 0; i < ed->getNumChildComponents(); ++i)
+                if (auto* c = ed->getChildComponent(i); c != &d && c->isVisible() && dynamic_cast<MatchPanel*>(c) != nullptr)
+                    matchApart = !c->getBounds().intersects(d.getBounds());
+            ed->openMatchPanel(false);
+            check(!moved && apart && matchApart, "Panel de banda fijo: no salta al mover la ganancia y no tapa el gráfico",
+                  before.toString() + (moved ? " (se movió)" : ""));
+        }
 
         // Sketch: un trazo arma las bandas.
         d.sketchMode = true;

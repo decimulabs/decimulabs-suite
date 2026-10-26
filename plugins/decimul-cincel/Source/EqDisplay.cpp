@@ -284,6 +284,7 @@ void EqDisplay::paint(juce::Graphics& g)
         paintSpectra(g);
         paintCollisions(g);
         paintCurves(g);
+        paintSoloShade(g);
     }
     paintDots(g);
     if (!pianoArea.isEmpty())
@@ -542,6 +543,50 @@ void EqDisplay::paintCurves(juce::Graphics& g)
         g.setColour(juce::Colours::white.withAlpha(0.5f));
         g.fillPath(dashed);
     }
+}
+
+void EqDisplay::paintSoloShade(juce::Graphics& g)
+{
+    // Con el solo prendido se oscurece todo lo que no suena: queda iluminada solo la franja de
+    // la banda (la misma forma del filtro con que se escucha).
+    const int sb = proc.soloBand.load();
+    if (sb < 0 || sb >= cincel::maxBands || !cincel::isActive(bands[(size_t) sb]))
+        return;
+    const auto& b = bands[(size_t) sb];
+    const auto a = cincel::designAudition(b.shape, b.freq, b.q);
+    if (a.isIdentity())
+        return;
+    const float w = plot.getWidth() / (float) (SpectrumAnalyzer::points - 1);
+    for (int i = 0; i < SpectrumAnalyzer::points; ++i)
+    {
+        const double hz = SpectrumAnalyzer::pointHz(i);
+        const double dbv = 20.0 * std::log10(std::max(1.0e-9, a.magnitude(hz)));
+        const float shade = (float) juce::jlimit(0.0, 1.0, -dbv / 24.0);
+        if (shade < 0.01f)
+            continue;
+        g.setColour(juce::Colours::black.withAlpha(0.78f * shade));
+        const float x = xForHz(hz);
+        g.fillRect(x - w * 0.5f, plot.getY(), w + 0.6f, plot.getHeight());
+    }
+    // Bordes de la franja (donde cae 3 dB) y un cartel.
+    const auto col = bandColour(sb);
+    double lo = -1.0, hi = -1.0;
+    for (int i = 0; i < SpectrumAnalyzer::points; ++i)
+    {
+        const double hz = SpectrumAnalyzer::pointHz(i);
+        const bool in = 20.0 * std::log10(std::max(1.0e-9, a.magnitude(hz))) > -3.0;
+        if (in && lo < 0.0) lo = hz;
+        if (in) hi = hz;
+    }
+    g.setColour(col.withAlpha(0.7f));
+    if (lo > SpectrumAnalyzer::loHz * 1.01)
+        g.drawVerticalLine((int) xForHz(lo), plot.getY(), plot.getBottom());
+    if (hi > 0.0 && hi < SpectrumAnalyzer::hiHz * 0.99)
+        g.drawVerticalLine((int) xForHz(hi), plot.getY(), plot.getBottom());
+    g.setColour(col);
+    g.setFont(mono(15.0f));
+    const juce::String text = "SOLO " + juce::String(sb + 1) + "   " + formatHz(lo > 0 ? lo : b.freq) + " - " + formatHz(hi > 0 ? hi : b.freq);
+    g.drawText(text, plot.reduced(10.0f, 8.0f).removeFromTop(18.0f), juce::Justification::centred);
 }
 
 void EqDisplay::paintDots(juce::Graphics& g)

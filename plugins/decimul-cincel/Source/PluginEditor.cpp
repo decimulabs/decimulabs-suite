@@ -335,7 +335,7 @@ DecimulCincelEditor::DecimulCincelEditor(DecimulCincelProcessor& p)
     dogImage = juce::ImageFileFormat::loadFrom(BinaryData::dog_png, (size_t) BinaryData::dog_pngSize);
 
     addAndMakeVisible(display);
-    addChildComponent(bandPanel);
+    addAndMakeVisible(bandPanel);
     addChildComponent(matchPanel);
     addChildComponent(instancesPanel);
 
@@ -343,7 +343,6 @@ DecimulCincelEditor::DecimulCincelEditor(DecimulCincelProcessor& p)
     {
         const int b = display.getPrimary();
         bandPanel.setBand(b);
-        bandPanel.setVisible(b >= 0);
     };
     bandPanel.getSelection = [this] { return display.getSelection(); };
     bandPanel.onDelete = [this] { display.deleteSelection(); };
@@ -489,9 +488,9 @@ DecimulCincelEditor::DecimulCincelEditor(DecimulCincelProcessor& p)
              "Mouse: doble clic = banda nueva (cerca de los bordes, un corte). Arrastrar un punto = frecuencia y ganancia (Ctrl = fino; en los cortes, vertical = Q). Rueda = Q; Alt+rueda = rango dinámico. Alt mientras arrastrás = escuchar la banda sola. Doble clic en un punto = prender/apagar. Clic derecho = menú de la banda. Arrastrar en el vacío = elegir varias; Shift+clic = sumar. Supr = borrar. Agarrar un pico del espectro = banda nueva justo ahí.");
 
     setWantsKeyboardFocus(true);
-    setSize(1280, 780);
+    setSize(1280, 860);
     setResizable(true, true);
-    setResizeLimits(1040, 640, 2400, 1500);
+    setResizeLimits(1040, 720, 2400, 1500);
     updateLanguage();
     startTimerHz(30);
 }
@@ -619,6 +618,7 @@ void DecimulCincelEditor::paint(juce::Graphics& g)
 
     DecimuChrome::paintCompartment(g, topbarRect.toFloat(), false, 8.0f);
     DecimuChrome::paintCompartment(g, displayRect.toFloat(), false, 8.0f);
+    DecimuChrome::paintCompartment(g, bandRect.toFloat(), false, 8.0f);
     DecimuChrome::paintCompartment(g, bottomRect.toFloat(), true, 8.0f);
 
     auto logoArea = headerLogoArea;
@@ -647,19 +647,7 @@ void DecimulCincelEditor::paint(juce::Graphics& g)
 
 void DecimulCincelEditor::layoutOverlays()
 {
-    auto area = display.getBounds().reduced(10);
-    {
-        // Abajo, salvo que la banda elegida esté en la mitad de abajo (el panel la taparía).
-        const int w = std::min(720, area.getWidth() - 20), h = 128;
-        const int y = panelAtTop ? area.getY() + 4 : area.getBottom() - h - 24;
-        bandPanel.setBounds(area.getCentreX() - w / 2, y, w, h);
-    }
-    auto right = area.removeFromRight(250).removeFromTop(330).translated(-26, 4);
-    matchPanel.setBounds(right);
-    auto right2 = display.getBounds().reduced(10).removeFromRight(250).removeFromTop(280).translated(-26, 4);
-    if (matchPanel.isVisible())
-        right2 = right2.translated(-260, 0);
-    instancesPanel.setBounds(right2);
+    resized();
 }
 
 void DecimulCincelEditor::resized()
@@ -672,7 +660,28 @@ void DecimulCincelEditor::resized()
     content.removeFromTop(8);
     bottomRect = content.removeFromBottom(92);
     content.removeFromBottom(8);
+    // El panel de la banda va en su propia franja, fija: nunca tapa un punto ni se mueve.
+    bandRect = content.removeFromBottom(84);
+    content.removeFromBottom(8);
+    bandPanel.setBounds(bandRect.reduced(4, 2));
     displayRect = content;
+    // Match e Instancias, si están abiertos, van en una columna al costado: tampoco tapan bandas.
+    if (matchPanel.isVisible() || instancesPanel.isVisible())
+    {
+        auto side = displayRect.removeFromRight(260);
+        displayRect.removeFromRight(8);
+        sideRect = side;
+        auto col = side.reduced(4);
+        if (matchPanel.isVisible())
+        {
+            matchPanel.setBounds(col.removeFromTop(std::min(330, col.getHeight())));
+            col.removeFromTop(8);
+        }
+        if (instancesPanel.isVisible())
+            instancesPanel.setBounds(col.removeFromTop(std::min(300, col.getHeight())));
+    }
+    else
+        sideRect = {};
     display.setBounds(displayRect.reduced(6));
 
     // Arriba: logo | preset | A B A>B | deshacer rehacer | VU | bypass
@@ -742,7 +751,6 @@ void DecimulCincelEditor::resized()
     placeKnob(attackKnob, bar.removeFromRight(kw));
     placeKnob(scaleKnob, bar.removeFromRight(kw));
 
-    layoutOverlays();
 }
 
 void DecimulCincelEditor::timerCallback()
@@ -753,20 +761,8 @@ void DecimulCincelEditor::timerCallback()
 
     display.refresh();
     if (display.getPrimary() != bandPanel.getBand())
-    {
         bandPanel.setBand(display.getPrimary());
-        bandPanel.setVisible(display.getPrimary() >= 0);
-    }
     bandPanel.refresh();
-    {
-        const float h = display.primaryDotHeight();
-        const bool top = h > 0.55f && !matchPanel.isVisible() && !instancesPanel.isVisible();
-        if (top != panelAtTop && !display.isMouseButtonDown())
-        {
-            panelAtTop = top;
-            layoutOverlays();
-        }
-    }
 
     const float outDb = std::max(processorRef.outPeakL.load(), processorRef.outPeakR.load());
     outputMeter.setLevelDb(outDb);
