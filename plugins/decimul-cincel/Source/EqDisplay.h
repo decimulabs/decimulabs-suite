@@ -141,6 +141,8 @@ private:
     juce::Rectangle<float> lasso;
     std::vector<juce::Point<float>> sketch;
     juce::int64 lastSignature = 0;
+    int lastCreated = -1;
+    juce::uint32 lastCreatedMs = 0;
     bool forceRepaint = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EqDisplay)

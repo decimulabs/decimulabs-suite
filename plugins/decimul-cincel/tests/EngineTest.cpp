@@ -391,6 +391,34 @@ int main(int argc, char** argv)
                   && d.getPrimary() == 0,
               "Mouse: doble clic crea una campana donde se hizo clic", juce::String(b.freq, 0) + " Hz, " + juce::String(b.gainDb, 2) + " dB");
 
+        // El clic extra para agarrar la banda recién creada (un "tercer clic") no la apaga.
+        d.mouseDoubleClick(ev(at, left, 3, false, at));
+        d.mouseDoubleClick(ev(at, left, 2, false, at));
+        d.refresh();
+        check(p->readBand(0).enabled, "Mouse: el clic extra justo después de crear la banda no la apaga");
+
+        // Solo del panel como en el Pro-Q: se escucha mientras está apretado y se barre arrastrando.
+        {
+            auto& solo = ed->getBandPanel().getSoloButton();
+            auto sev = [&](juce::Point<float> pos, juce::ModifierKeys mods, bool dragged)
+            {
+                return juce::MouseEvent(src, pos, mods, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &solo, &solo, juce::Time::getCurrentTime(),
+                                        { 10.0f, 10.0f }, juce::Time::getCurrentTime(), 1, dragged);
+            };
+            const float f0 = p->readBand(0).freq;
+            solo.mouseDown(sev({ 10.0f, 10.0f }, left, false));
+            const bool held = p->soloBand.load() == 0;
+            solo.mouseDrag(sev({ 100.0f, 10.0f }, left, true));
+            const float f1 = p->readBand(0).freq;
+            solo.mouseUp(sev({ 100.0f, 10.0f }, none, true));
+            check(held && f1 > f0 * 1.8f && p->soloBand.load() == -1, "Solo (auriculares): suena mientras está apretado, arrastrar barre la frecuencia, al soltar vuelve",
+                  juce::String(f0, 0) + " -> " + juce::String(f1, 0) + " Hz");
+            auto bb = p->readBand(0);
+            bb.freq = f0;
+            p->writeBand(0, bb);
+            d.refresh();
+        }
+
         // Arrastrar una octava a la derecha y 3 dB abajo.
         const auto to = d.pointFor(2000.0, 3.0);
         d.mouseDown(ev(at, left, 1, false, at));

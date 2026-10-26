@@ -5,14 +5,40 @@ using cincel::BandParams;
 
 BandPanel::BandPanel(DecimulCincelProcessor& p, DecimuTooltips& t) : proc(p), tips(t)
 {
-    for (auto* b : { &prevButton, &nextButton, &soloPill, &deletePill })
+    for (auto* b : { (juce::Button*) &prevButton, (juce::Button*) &nextButton, (juce::Button*) &soloPill, (juce::Button*) &deletePill })
         addAndMakeVisible(*b);
-    for (auto* b : { &dynPill, &autoPill, &scPill, &specPill, &onPill })
+    for (auto* b : { (juce::Button*) &dynPill, (juce::Button*) &autoPill, (juce::Button*) &scPill, (juce::Button*) &specPill, (juce::Button*) &onPill })
     {
         b->setClickingTogglesState(true);
         addAndMakeVisible(*b);
     }
     soloPill.setClickingTogglesState(false);
+
+    // Solo como en el Pro-Q: se escucha mientras está apretado; arrastrando a los costados se
+    // barre la frecuencia de la banda; al soltar vuelve al EQ normal.
+    soloPill.onPress = [this]
+    {
+        if (band < 0)
+            return;
+        proc.undoManager.beginNewTransaction();
+        soloStartFreq = proc.readBand(band).freq;
+        soloHeld = true;
+        proc.soloBand.store(band);
+    };
+    soloPill.onDragged = [this](int dx)
+    {
+        if (band < 0 || !soloHeld)
+            return;
+        auto b = proc.readBand(band);
+        b.freq = (float) juce::jlimit(10.0, 30000.0, soloStartFreq * std::pow(2.0, dx / 90.0));
+        proc.writeBand(band, b);
+    };
+    soloPill.onRelease = [this]
+    {
+        if (soloHeld)
+            proc.soloBand.store(-1);
+        soloHeld = false;
+    };
 
     title.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(title);
@@ -48,7 +74,7 @@ BandPanel::BandPanel(DecimulCincelProcessor& p, DecimuTooltips& t) : proc(p), ti
     shapeBox.onChange = [this] { if (shapeBox.consumeUserChange()) applyToOthers(CincelIDs::shape, (float) shapeBox.getSelectedItemIndex()); };
     slopeBox.onChange = [this] { if (slopeBox.consumeUserChange()) applyToOthers(CincelIDs::slope, (float) slopeBox.getSelectedItemIndex()); };
     placeBox.onChange = [this] { if (placeBox.consumeUserChange()) applyToOthers(CincelIDs::place, (float) placeBox.getSelectedItemIndex()); };
-    auto pillToOthers = [this](DecimuPillButton& pill, CincelIDs::BandKey key)
+    auto pillToOthers = [this](juce::Button& pill, CincelIDs::BandKey key)
     {
         pill.onClick = [this, &pill, key]
         {
@@ -63,11 +89,6 @@ BandPanel::BandPanel(DecimulCincelProcessor& p, DecimuTooltips& t) : proc(p), ti
     pillToOthers(onPill, CincelIDs::on);
     addMouseListener(this, true);
 
-    soloPill.onClick = [this]
-    {
-        if (band >= 0)
-            proc.soloBand.store(proc.soloBand.load() == band ? -1 : band);
-    };
     deletePill.onClick = [this]
     {
         if (onDelete)
@@ -126,9 +147,10 @@ void BandPanel::registerTips()
              "La dinámica escucha el sidechain externo en vez de esta pista (hay que rutear un sidechain al plugin en el DAW).");
     tips.add(specPill, "Spectral dynamics: inside the band each frequency is compressed on its own, so a resonance that comes and goes is tamed without touching its neighbours. Adds latency (about 43 ms): if switching it during playback causes a jump, reserve that latency in the analyzer menu (right-click on the graph).",
              "Dinámica espectral: dentro de la banda cada frecuencia se comprime por su cuenta, así una resonancia que aparece y desaparece se baja sin tocar a sus vecinas. Suma latencia (unos 43 ms): si al prenderlo con la música sonando hay un salto, reservá esa latencia en el menú del analizador (clic derecho en el gráfico).");
-    tips.add(soloPill, "Solo: listen only to this band's zone. In cuts and notch you hear what is being removed. Tip: hold Alt while dragging a band.",
-             "Solo: se escucha solo la zona de esta banda. En cortes y notch se escucha lo que se está sacando. Tip: mantené Alt mientras arrastrás una banda.");
-    tips.add(onPill, "Turns the band on or off (also: double-click its dot).", "Prende o apaga la banda (también: doble clic en su punto).");
+    tips.add(soloPill, "Solo (hold it, like in Pro-Q): while pressed you hear only this band's zone; drag sideways to sweep its frequency; release to go back. In cuts and notch you hear what is being removed. Also: Alt while dragging a dot, or right-click > Solo to leave it on.",
+             "Solo (se mantiene apretado, como en el Pro-Q): mientras está apretado se escucha solo la zona de esta banda; arrastrando a los costados se barre su frecuencia; al soltar vuelve. En cortes y notch se escucha lo que se está sacando. También: Alt mientras arrastrás un punto, o clic derecho > Solo para dejarlo fijo.");
+    tips.add(onPill, "Band on / off. When it is off the icon turns red and the dot goes hollow (also: double-click the dot).",
+             "Banda prendida / apagada. Apagada, el ícono se pone rojo y el punto queda hueco (también: doble clic en el punto).");
     tips.add(deletePill, "Delete the band (also: Delete key).", "Borra la banda (también: tecla Supr).");
     tips.add(prevButton, "Previous band.", "Banda anterior.");
     tips.add(nextButton, "Next band.", "Banda siguiente.");
@@ -194,6 +216,8 @@ void BandPanel::refresh()
         return;
     const auto b = proc.readBand(band);
     soloPill.setToggleState(proc.soloBand.load() == band, juce::dontSendNotification);
+    soloPill.setOnColour(EqDisplay::bandColour(band));
+    onPill.setOnColour(EqDisplay::bandColour(band));
     const bool hasGain = cincel::shapeHasGain(b.shape);
     gain.slider.setEnabled(hasGain);
     slopeBox.setEnabled(cincel::shapeHasSlope(b.shape));
@@ -281,7 +305,7 @@ void BandPanel::resized()
     r.removeFromLeft(10);
 
     auto right = r.removeFromRight(164);
-    pill(soloPill, right.removeFromLeft(60), 56);
+    pill(soloPill, right.removeFromLeft(60), 48);
     pill(onPill, right.removeFromLeft(56), 48);
     pill(deletePill, right.removeFromLeft(40), 32);
 

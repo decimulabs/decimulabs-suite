@@ -4,6 +4,7 @@
 #include <DecimuLookAndFeel.h>
 #include <DecimuPillButton.h>
 #include <DecimuTooltips.h>
+#include "BandIconButton.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
 
@@ -49,6 +50,8 @@ public:
 
     void setBand(int index);
     int getBand() const { return band; }
+    BandIconButton& getSoloButton() { return soloPill; }
+    BandIconButton& getOnButton() { return onPill; }
     void refresh();                // estado de solo, habilitados, colores (timer del editor)
     void setSpanish(bool es);
 
@@ -88,7 +91,10 @@ private:
     bool userMouse = false;   // hay un clic del usuario en curso (dentro del panel)
     Knob freq, gain, q, range, thr;
     DecimuPillButton dynPill { "DYN" }, autoPill { "AUTO" }, scPill { "SC" }, specPill { "SPEC" };
-    DecimuPillButton soloPill { "SOLO" }, onPill { "ON" }, deletePill { "X" };
+    BandIconButton soloPill { BandIconButton::Icon::Headphones }, onPill { BandIconButton::Icon::Power };
+    DecimuPillButton deletePill { "X" };
+    float soloStartFreq = 1000.0f;
+    bool soloHeld = false;
 
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeAttach, slopeAttach, placeAttach;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> dynAttach, autoAttach, scAttach, specAttach, onAttach;

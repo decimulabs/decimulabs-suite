@@ -959,9 +959,15 @@ void EqDisplay::mouseDoubleClick(const juce::MouseEvent& e)
 {
     if (sketchMode)
         return;
+    // Solo el segundo clic cuenta como doble clic. Si no, el clic extra que se hace para agarrar
+    // una banda recién creada se contaba como otro doble clic y la apagaba.
+    if (e.getNumberOfClicks() != 2)
+        return;
     const int hit = hitBand(e.position);
     if (hit >= 0)
     {
+        if (hit == lastCreated && juce::Time::getMillisecondCounter() - lastCreatedMs < 1500)
+            return;
         auto b = bands[(size_t) hit];
         b.enabled = !b.enabled;
         proc.writeBand(hit, b);
@@ -1061,6 +1067,8 @@ void EqDisplay::createBandAt(juce::Point<float> p, bool fromPeak, double peakHz)
     proc.writeBand(i, b);
     bands[(size_t) i] = b;
     curveValid[(size_t) i] = false;
+    lastCreated = i;
+    lastCreatedMs = juce::Time::getMillisecondCounter();
     selectOnly(i);
 }
 
