@@ -333,6 +333,18 @@ void BandPanel::resized()
 
 void BandPanel::paint(juce::Graphics& g)
 {
+    // Los controles de la franja se dibujan en el color de la banda elegida (perillas, botones y
+    // menús leen los colores de acento al dibujarse): se cambian acá y se devuelven en
+    // paintOverChildren, así el resto de la interfaz sigue con su color.
+    savedAccent = { DecimuColours::accentPrimary, DecimuColours::accentSecondary, DecimuColours::accentSecondarySoft };
+    if (band >= 0)
+    {
+        const auto c = EqDisplay::bandColour(band);
+        DecimuColours::accentPrimary = c;
+        DecimuColours::accentSecondary = c.darker(0.55f);
+        DecimuColours::accentSecondarySoft = c.darker(0.25f);
+    }
+
     auto r = getLocalBounds().toFloat().reduced(1.0f);
     const auto col = band >= 0 ? EqDisplay::bandColour(band) : DecimuColours::textMuted;
     g.setColour(col.withAlpha(band >= 0 ? 0.9f : 0.4f));
@@ -347,4 +359,11 @@ void BandPanel::paint(juce::Graphics& g)
                        : "Click a dot to see its controls here. Double-click the graph: new band.")),
                    getLocalBounds().reduced(16, 0), juce::Justification::centredLeft);
     }
+}
+
+void BandPanel::paintOverChildren(juce::Graphics&)
+{
+    DecimuColours::accentPrimary = savedAccent[0];
+    DecimuColours::accentSecondary = savedAccent[1];
+    DecimuColours::accentSecondarySoft = savedAccent[2];
 }

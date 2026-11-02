@@ -60,6 +60,7 @@ public:
     std::function<void()> onDelete;
 
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent&) override { userMouse = true; }
     void mouseUp(const juce::MouseEvent&) override { userMouse = false; }
@@ -89,6 +90,7 @@ private:
     juce::Label title;
     UserComboBox shapeBox, slopeBox, placeBox;
     bool userMouse = false;   // hay un clic del usuario en curso (dentro del panel)
+    std::array<juce::Colour, 3> savedAccent {};
     Knob freq, gain, q, range, thr;
     DecimuPillButton dynPill { "DYN" }, autoPill { "AUTO" }, scPill { "SC" }, specPill { "SPEC" };
     BandIconButton soloPill { BandIconButton::Icon::Headphones }, onPill { BandIconButton::Icon::Power };
