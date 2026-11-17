@@ -154,7 +154,7 @@ public:
             if (!usesDynamics(b) || b.spectral)
             {
                 offsets[(size_t) i] = 0.0;
-                if (telemetry != nullptr && !b.spectral)
+                if (telemetry != nullptr && !b.spectral && owns(i))
                     telemetry->offsetDb[(size_t) i].store(0.0f, std::memory_order_relaxed);
                 continue;
             }
@@ -189,7 +189,7 @@ public:
             d.trackAverage(len);
             const double thr = b.autoThreshold ? d.avgDb + 4.0 : b.thresholdDb;
             offsets[(size_t) i] = dynamicOffsetDb(d.levelDb, thr, b.rangeDb);
-            if (telemetry != nullptr)
+            if (telemetry != nullptr && owns(i))
             {
                 telemetry->offsetDb[(size_t) i].store((float) offsets[(size_t) i], std::memory_order_relaxed);
                 telemetry->levelDb[(size_t) i].store((float) d.levelDb, std::memory_order_relaxed);
@@ -201,6 +201,9 @@ public:
     double offset(int band) const { return offsets[(size_t) band]; }
 
     DynamicsTelemetry* telemetry = nullptr;
+    /** Si no es nulo, solo se informan las bandas marcadas (las que procesa este motor). */
+    const std::array<bool, maxBands>* owner = nullptr;
+    bool owns(int i) const { return owner == nullptr || (*owner)[(size_t) i]; }
 
 private:
     double fs = 48000.0;
@@ -277,6 +280,18 @@ public:
     }
 
     DynamicsBank dynamics;
+
+    /** Cuánto suena la banda en este motor (0 = nada; durante un fundido, en el medio). */
+    double bandWet(int i) const { return bands[(size_t) i].wet; }
+
+    /** Alguna banda está sonando o fundiéndose (si no, se puede saltear el motor). */
+    bool isBusy() const
+    {
+        for (const auto& b : bands)
+            if (b.wet > 0.0 || b.wetTarget > 0.0)
+                return true;
+        return false;
+    }
 
     /** Frecuencia/ganancia/Q suavizadas (para que el solo y la pantalla sigan a la banda). */
     double smoothedFreq(int i) const { return std::exp(bands[(size_t) i].lf); }

@@ -144,6 +144,60 @@ int EqDisplay::hitBand(juce::Point<float> p) const
     return best;
 }
 
+juce::Rectangle<float> EqDisplay::capsuleRect(int band) const
+{
+    // Debajo del punto (o arriba, si el punto está muy abajo), cuatro íconos: encendido, solo,
+    // menú y borrar. Chica y solo mientras el mouse está en la banda: no tapa nada.
+    const auto c = dotPosition(band);
+    const float w = 104.0f, h = 24.0f;
+    float y = c.y + 15.0f;
+    if (y + h > plot.getBottom() - 2.0f)
+        y = c.y - 15.0f - h;
+    const float x = juce::jlimit(plot.getX() + 2.0f, plot.getRight() - w - 2.0f, c.x - w * 0.5f);
+    return { x, y, w, h };
+}
+
+int EqDisplay::capsuleIcon(juce::Point<float> p) const
+{
+    if (capsuleBand < 0)
+        return -1;
+    const auto r = capsuleRect(capsuleBand);
+    if (!r.contains(p))
+        return -1;
+    return juce::jlimit(0, 3, (int) ((p.x - r.getX()) / (r.getWidth() / 4.0f)));
+}
+
+void EqDisplay::paintCapsule(juce::Graphics& g)
+{
+    if (capsuleBand < 0 || drag != Drag::None || !bands[(size_t) capsuleBand].used)
+        return;
+    const auto& b = bands[(size_t) capsuleBand];
+    const auto r = capsuleRect(capsuleBand);
+    const auto col = bandColour(capsuleBand);
+    g.setColour(juce::Colour(0xf00b0d16));
+    g.fillRoundedRectangle(r, 6.0f);
+    g.setColour(col.withAlpha(0.7f));
+    g.drawRoundedRectangle(r, 6.0f, 1.0f);
+    const float cw = r.getWidth() / 4.0f;
+    const BandIconButton::Icon icons[] = { BandIconButton::Icon::Power, BandIconButton::Icon::Headphones,
+                                           BandIconButton::Icon::Menu, BandIconButton::Icon::Close };
+    for (int k = 0; k < 4; ++k)
+    {
+        auto cell = juce::Rectangle<float>(r.getX() + k * cw, r.getY(), cw, r.getHeight());
+        if (k == capsuleHover)
+        {
+            g.setColour(col.withAlpha(0.18f));
+            g.fillRoundedRectangle(cell.reduced(2.0f), 4.0f);
+        }
+        juce::Colour c = DecimuColours::text.withAlpha(0.8f);
+        if (k == 0)
+            c = b.enabled ? col : DecimuColours::accentRec;
+        else if (k == 1 && proc.soloBand.load() == capsuleBand)
+            c = col;
+        BandIconButton::drawIcon(g, icons[k], cell.reduced(2.0f), c);
+    }
+}
+
 int EqDisplay::hitRangeHandle(juce::Point<float> p) const
 {
     for (int i : selection)
@@ -313,6 +367,7 @@ void EqDisplay::paint(juce::Graphics& g)
         paintSoloShade(g);
     }
     paintDots(g);
+    paintCapsule(g);
     if (!pianoArea.isEmpty())
         paintPiano(g);
 
@@ -771,6 +826,14 @@ void EqDisplay::mouseMove(const juce::MouseEvent& e)
     mouseInside = true;
     const int h = hitBand(e.position);
     hovered = h;
+    // La cápsula sigue a la banda bajo el mouse y no se va mientras el mouse esté sobre ella.
+    if (capsuleBand >= 0 && capsuleRect(capsuleBand).expanded(6.0f).contains(e.position))
+        capsuleHover = capsuleIcon(e.position);
+    else
+    {
+        capsuleBand = h;
+        capsuleHover = -1;
+    }
     grabPeak = (h < 0 && hitRangeHandle(e.position) < 0 && !sketchMode) ? findSpectrumPeak(e.position) : -1;
     setMouseCursor(h >= 0 ? juce::MouseCursor::DraggingHandCursor
                           : (grabPeak >= 0 ? juce::MouseCursor::PointingHandCursor
@@ -782,6 +845,7 @@ void EqDisplay::mouseExit(const juce::MouseEvent&)
 {
     mouseInside = false;
     hovered = -1;
+    capsuleBand = -1;
     grabPeak = -1;
     repaint();
 }
@@ -798,6 +862,22 @@ void EqDisplay::mouseDown(const juce::MouseEvent& e)
         sketch.clear();
         sketch.push_back(e.position);
         drag = Drag::Sketch;
+        return;
+    }
+
+    // Cápsula: encendido, solo (mientras está apretado), menú, borrar.
+    if (const int icon = capsuleIcon(e.position); icon >= 0 && !e.mods.isPopupMenu())
+    {
+        const int cb = capsuleBand;
+        auto b = bands[(size_t) cb];
+        switch (icon)
+        {
+            case 0: b.enabled = !b.enabled; proc.writeBand(cb, b); bands[(size_t) cb] = b; break;
+            case 1: setSolo(cb); soloFromCapsule = true; break;
+            case 2: selectOnly(cb); showBandMenu(cb); break;
+            default: selectOnly(cb); deleteSelection(); capsuleBand = -1; break;
+        }
+        repaint();
         return;
     }
 
@@ -944,10 +1024,10 @@ void EqDisplay::mouseDrag(const juce::MouseEvent& e)
 
 void EqDisplay::mouseUp(const juce::MouseEvent&)
 {
-    if (soloFromDrag)
+    if (soloFromDrag || soloFromCapsule)
     {
         setSolo(-1);
-        soloFromDrag = false;
+        soloFromDrag = soloFromCapsule = false;
     }
     if (drag == Drag::Sketch)
         finishSketch();
@@ -962,6 +1042,8 @@ void EqDisplay::mouseDoubleClick(const juce::MouseEvent& e)
     // Solo el segundo clic cuenta como doble clic. Si no, el clic extra que se hace para agarrar
     // una banda recién creada se contaba como otro doble clic y la apagaba.
     if (e.getNumberOfClicks() != 2)
+        return;
+    if (capsuleIcon(e.position) >= 0)   // doble clic en la cápsula: ya lo atendió el primer clic
         return;
     const int hit = hitBand(e.position);
     if (hit >= 0)

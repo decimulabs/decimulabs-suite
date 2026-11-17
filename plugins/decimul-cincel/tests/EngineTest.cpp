@@ -177,6 +177,14 @@ int main(int argc, char** argv)
             pump(80);
         }
         ed->getDisplay().selectOnly(variant == "ms" ? 1 : (variant == "low" ? 5 : 2));
+        if (variant == "hover")
+        {
+            auto& d = ed->getDisplay();
+            const auto b = p->readBand(2);
+            const auto pt = d.pointFor(b.freq, b.gainDb * p->globalValue(CincelIDs::gainScale) * 0.01f);
+            d.mouseMove(juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), pt, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &d, &d,
+                                         juce::Time::getCurrentTime(), pt, juce::Time::getCurrentTime(), 0, false));
+        }
         pump(400);
 
         const auto image = editor->createComponentSnapshot(editor->getLocalBounds(), true, 1.0f);
@@ -524,6 +532,32 @@ int main(int argc, char** argv)
             const auto v1 = p->postAnalyzer.version;
             pump(700);
             check(p->postAnalyzer.version == v1, "Reposo: sin audio el analizador se queda quieto (no gasta CPU)");
+        }
+
+        // Mini controles al lado del punto (como el Pro-Q 3): aparecen al pasar el mouse.
+        {
+            d.refresh();
+            const auto dot0 = d.pointFor(p->readBand(0).freq, p->readBand(0).gainDb);
+            d.mouseMove(ev(dot0, none, 0, false, dot0));
+            const auto cap = d.getCapsuleRect();
+            const bool shown = !cap.isEmpty();
+            const auto powerAt = juce::Point<float>(cap.getX() + cap.getWidth() * 0.125f, cap.getCentreY());
+            const auto soloAt = juce::Point<float>(cap.getX() + cap.getWidth() * 0.375f, cap.getCentreY());
+            const bool before = p->readBand(0).enabled;
+            d.mouseMove(ev(powerAt, none, 0, false, powerAt));
+            d.mouseDown(ev(powerAt, left, 1, false, powerAt));
+            d.mouseUp(ev(powerAt, none, 1, false, powerAt));
+            const bool toggled = p->readBand(0).enabled != before;
+            d.mouseMove(ev(soloAt, none, 0, false, soloAt));
+            d.mouseDown(ev(soloAt, left, 1, false, soloAt));
+            const bool capSolo = p->soloBand.load() == 0;
+            d.mouseUp(ev(soloAt, none, 1, false, soloAt));
+            check(shown && toggled && capSolo && p->soloBand.load() == -1,
+                  "Mini controles al lado del punto: aparecen, el encendido prende/apaga y el solo suena mientras está apretado");
+            auto b0 = p->readBand(0);
+            b0.enabled = true;
+            p->writeBand(0, b0);
+            d.mouseExit(ev(soloAt, none, 0, false, soloAt));
         }
 
         // Sketch: un trazo arma las bandas.

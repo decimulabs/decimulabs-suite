@@ -12,7 +12,7 @@
 class BandIconButton : public juce::Button
 {
 public:
-    enum class Icon { Power, Headphones };
+    enum class Icon { Power, Headphones, Menu, Close };
 
     explicit BandIconButton(Icon i) : juce::Button({}), icon(i) {}
 
@@ -61,28 +61,46 @@ public:
         g.setColour(on ? c : offColour.withAlpha(isMouseOver ? 0.9f : 0.6f));
         g.drawRoundedRectangle(r, 5.0f, on ? 1.6f : 1.0f);
 
+        drawIcon(g, icon, r, c);
+    }
+
+    /** Dibuja un ícono centrado en `r` (lo usa también la cápsula de controles de la pantalla). */
+    static void drawIcon(juce::Graphics& g, Icon which, juce::Rectangle<float> r, juce::Colour c)
+    {
         const float s = std::min(r.getWidth(), r.getHeight()) * 0.62f;
         const auto box = juce::Rectangle<float>(s, s).withCentre(r.getCentre());
+        const auto cc = box.getCentre();
         g.setColour(c);
         juce::Path p;
-        if (icon == Icon::Power)
+        switch (which)
         {
-            const auto cc = box.getCentre();
-            const float rad = s * 0.42f;
-            p.addCentredArc(cc.x, cc.y + s * 0.04f, rad, rad, 0.0f, 0.75f, juce::MathConstants<float>::twoPi - 0.75f, true);
-            g.strokePath(p, juce::PathStrokeType(s * 0.12f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            g.drawLine(cc.x, box.getY(), cc.x, cc.y + s * 0.05f, s * 0.12f);
-        }
-        else
-        {
-            const auto cc = box.getCentre();
-            const float rad = s * 0.42f;
-            p.addCentredArc(cc.x, cc.y + s * 0.08f, rad, rad, 0.0f, -juce::MathConstants<float>::halfPi * 1.05f,
-                            juce::MathConstants<float>::halfPi * 1.05f, true);
-            g.strokePath(p, juce::PathStrokeType(s * 0.1f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            const float cw = s * 0.24f, ch = s * 0.36f;
-            g.fillRoundedRectangle(cc.x - rad - cw * 0.5f, cc.y + s * 0.02f, cw, ch, cw * 0.35f);
-            g.fillRoundedRectangle(cc.x + rad - cw * 0.5f, cc.y + s * 0.02f, cw, ch, cw * 0.35f);
+            case Icon::Power:
+            {
+                const float rad = s * 0.42f;
+                p.addCentredArc(cc.x, cc.y + s * 0.04f, rad, rad, 0.0f, 0.75f, juce::MathConstants<float>::twoPi - 0.75f, true);
+                g.strokePath(p, juce::PathStrokeType(s * 0.12f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.drawLine(cc.x, box.getY(), cc.x, cc.y + s * 0.05f, s * 0.12f);
+                break;
+            }
+            case Icon::Headphones:
+            {
+                const float rad = s * 0.42f;
+                p.addCentredArc(cc.x, cc.y + s * 0.08f, rad, rad, 0.0f, -juce::MathConstants<float>::halfPi * 1.05f,
+                                juce::MathConstants<float>::halfPi * 1.05f, true);
+                g.strokePath(p, juce::PathStrokeType(s * 0.1f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                const float cw = s * 0.24f, ch = s * 0.36f;
+                g.fillRoundedRectangle(cc.x - rad - cw * 0.5f, cc.y + s * 0.02f, cw, ch, cw * 0.35f);
+                g.fillRoundedRectangle(cc.x + rad - cw * 0.5f, cc.y + s * 0.02f, cw, ch, cw * 0.35f);
+                break;
+            }
+            case Icon::Menu:
+                for (int k = -1; k <= 1; ++k)
+                    g.drawLine(box.getX() + s * 0.1f, cc.y + k * s * 0.3f, box.getRight() - s * 0.1f, cc.y + k * s * 0.3f, s * 0.11f);
+                break;
+            case Icon::Close:
+                g.drawLine(box.getX() + s * 0.15f, box.getY() + s * 0.15f, box.getRight() - s * 0.15f, box.getBottom() - s * 0.15f, s * 0.12f);
+                g.drawLine(box.getRight() - s * 0.15f, box.getY() + s * 0.15f, box.getX() + s * 0.15f, box.getBottom() - s * 0.15f, s * 0.12f);
+                break;
         }
     }
 

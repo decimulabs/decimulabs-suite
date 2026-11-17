@@ -768,6 +768,31 @@ void testFuzzAndChanges()
         // Un seno de 1 kHz a 0.2 con +12 dB (0.8) cambia como mucho ~0.105 por muestra.
         check(maxStep < 0.13, "Barrido rápido de un bell de +12 dB: sin saltos (clics)", "salto máximo " + fmt(maxStep, 4));
     }
+    // Fase natural: una banda que cruza de los graves (motor normal) a los agudos (sobremuestreado)
+    // no tiene que dar un golpe.
+    for (int m : { 0, 1 })
+    {
+        Rig r(48000.0);
+        r.g.mode = (Mode) m;
+        r.bands[0] = band(Shape::Bell, 2000.0, 12.0, 6.0);
+        const int n = 96000;
+        auto L = sine(48000.0, 4800.0, 0.1, n);
+        auto R = L;
+        double peak = 0.0;
+        for (size_t s = 0; s < L.size(); s += block)
+        {
+            r.bands[0].freq = (float) (2000.0 * std::pow(5.0, std::sin(kPi * s / n)));   // 2 → 10 → 2 kHz
+            const int len = (int) std::min<size_t>(block, L.size() - s);
+            r.e.process(L.data() + s, R.data() + s, nullptr, nullptr, len, r.bands.data(), r.g);
+            for (int i = 0; i < len; ++i)
+                if (s > 4096)
+                    peak = std::max(peak, (double) std::abs(L[s + (size_t) i]));
+        }
+        // +12 dB sobre 0.1 da 0.4; un golpe se vería muy por encima.
+        check(peak < 0.5, std::string("Barrido de un bell resonante cruzando 4.8 kHz sin golpes (") + (m == 0 ? "latencia cero" : "fase natural") + ")",
+              "pico " + fmt(peak, 3));
+    }
+
     // Cambio de forma: se funde, no salta.
     {
         Rig r(48000.0);

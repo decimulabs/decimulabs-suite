@@ -37,6 +37,8 @@ la latencia compensada.
 
 **Uso sin estorbar** (26/10): la interfaz se escala entera de 75 a 150 % (botón de tamaño; arranca al 75 % en pantallas bajas, se guarda con el proyecto); ningún botón, menú o perilla se queda con el teclado (la barra espaciadora y los atajos van al DAW; solo la pantalla toma Supr/Ctrl+A/Ctrl+Z); la lectura de la banda va fija en la esquina de arriba a la izquierda; sin audio ni cambios no se redibuja nada; prender SPEC deja ~6 ms de silencio en vez de un hueco del largo de la latencia, y con "Reservar la latencia espectral" (menú del analizador) la latencia no cambia nunca.
 
+**v0.5 (17/11)**: mini controles al lado del punto al pasar el mouse (encendido, solo apretado, menú, borrar), como el Pro-Q 3; fase natural sobremuestrea solo las bandas de arriba de ~0.1 fs (y el tilt plano), con relevo ordenado al cruzar, ~40 % menos CPU; 9 presets nuevos por instrumento.
+
 **Pantalla**: analizador pre/post/sidechain (resolución, velocidad, inclinación 0-6 dB/oct, rango,
 retener picos, congelar), spectrum grab (agarrar un pico crea una banda ahí), zoom ±3/6/12/30 dB,
 teclado de piano, curvas por canal (L/R/S punteadas), dinámica en vivo, lectura con nota musical.

@@ -217,7 +217,7 @@ public:
         solo.prepare(fs);
 
         zl.dynamics.telemetry = &telemetry;
-        np.core.dynamics.telemetry = &telemetry;
+        np.setTelemetry(&telemetry);
         lpDyn.telemetry = &telemetry;
         spectral.telemetry = &telemetry;
 
@@ -311,8 +311,8 @@ private:
         else if (m == Mode::NaturalPhase)
         {
             np.reset();
-            np.core.setParams(eff, g.gainQ, g.dyn);
-            np.core.snapToTargets();
+            np.setParams(eff, g.gainQ, g.dyn);
+            np.snapToTargets();
         }
         else
         {
@@ -479,7 +479,7 @@ private:
                 zl.process(pl, pr, il, ir, sl, sr, n);
                 break;
             case Mode::NaturalPhase:
-                np.core.setParams(eff.data(), g.gainQ, g.dyn);
+                np.setParams(eff.data(), g.gainQ, g.dyn);
                 np.process(pl, pr, il, ir, sl, sr, n);
                 break;
             case Mode::LinearPhase:

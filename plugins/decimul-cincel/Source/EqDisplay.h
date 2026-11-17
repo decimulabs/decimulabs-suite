@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "BandIconButton.h"
 #include <DecimuLookAndFeel.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
@@ -43,6 +44,9 @@ public:
     // ---- Selección (la comparte con el panel de banda) ----
     const std::vector<int>& getSelection() const { return selection; }
     int getPrimary() const { return primary; }
+    /** La cápsula de controles que aparece debajo del punto al pasar el mouse (vacía si no hay). */
+    juce::Rectangle<float> getCapsuleRect() const { return capsuleBand >= 0 ? capsuleRect(capsuleBand) : juce::Rectangle<float>(); }
+
     /** Punto de la pantalla para una frecuencia y una ganancia (lo usan los tests). */
     juce::Point<float> pointFor(double hz, double db) const { return { xForHz(hz), yForDb(db) }; }
 
@@ -83,6 +87,9 @@ private:
     double displayedGain(int band) const;
 
     int hitBand(juce::Point<float> p) const;
+    juce::Rectangle<float> capsuleRect(int band) const;
+    int capsuleIcon(juce::Point<float> p) const;
+    void paintCapsule(juce::Graphics&);
     int hitRangeHandle(juce::Point<float> p) const;
     int findSpectrumPeak(juce::Point<float> p) const;
 
@@ -142,6 +149,8 @@ private:
     std::vector<juce::Point<float>> sketch;
     juce::int64 lastSignature = 0;
     int lastCreated = -1;
+    int capsuleBand = -1, capsuleHover = -1;
+    bool soloFromCapsule = false;
     juce::uint32 lastCreatedMs = 0;
     bool forceRepaint = true;
 

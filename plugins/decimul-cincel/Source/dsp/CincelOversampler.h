@@ -150,7 +150,10 @@ private:
     int mask = 0, posUp = 0, posDn = 0;
 };
 
-/** El motor IIR sobremuestreado (modo fase natural). */
+/** El motor del modo fase natural. Solo las bandas que actúan arriba (desde ~4.8 kHz a 48 kHz, y
+    los cortes / shelves agudos y tilts) pasan por el motor sobremuestreado, que es lo que les da la
+    fase analógica cerca de Nyquist; las graves ya son exactas a la frecuencia del proyecto y se
+    procesan ahí, antes de subir: cuesta mucho menos y suena igual. */
 class NaturalPhaseEngine
 {
 public:
@@ -159,6 +162,10 @@ public:
         baseRate = sampleRate;
         factor = sampleRate <= 50000.0 ? 4 : (sampleRate <= 100000.0 ? 2 : 1);
         core.prepare(sampleRate * factor);
+        lowCore.prepare(sampleRate);
+        core.dynamics.owner = &highMask;
+        lowCore.dynamics.owner = &lowMask;
+        high.fill(false);
 
         const auto hA = designHalfband(59, 8.6);   // ~87 dB de rechazo, transición 20 → 24 kHz
         const auto hB = designHalfband(10, 8.5);   // segunda etapa (mucho más holgada)
@@ -185,6 +192,64 @@ public:
             inB[ch].reset();
         }
         core.reset();
+        lowCore.reset();
+    }
+
+    /** Reparte las bandas entre los dos motores (con histéresis, para que una banda que se mueve
+        alrededor del límite no salte de uno a otro a cada rato). */
+    void setParams(const BandParams* p, bool gainQ, const DynamicsSettings& dyn)
+    {
+        for (int i = 0; i < maxBands; ++i)
+        {
+            const auto& b = p[i];
+            // El tilt plano actúa en todo el espectro; el resto, solo si su frecuencia está arriba.
+            const bool wide = b.shape == Shape::FlatTilt;
+            const double limit = (high[(size_t) i] ? 0.08 : 0.1) * baseRate;
+            const bool want = factor == 1 || wide || b.freq > limit;
+            lowBands[(size_t) i] = b;
+            highBands[(size_t) i] = b;
+            // Relevo ordenado: si la banda cambia de motor, primero se termina de apagar en el
+            // viejo y recién después se prende en el nuevo (si estuviera a medias en los dos, se
+            // sumaría dos veces y daría un golpe).
+            if (want != high[(size_t) i])
+            {
+                const IirCore& old = high[(size_t) i] ? core : lowCore;
+                if (old.bandWet(i) > 0.0)
+                {
+                    lowBands[(size_t) i].used = false;
+                    highBands[(size_t) i].used = false;
+                }
+                else
+                    high[(size_t) i] = want;
+            }
+            if (high[(size_t) i])
+                lowBands[(size_t) i].used = false;
+            else
+                highBands[(size_t) i].used = false;
+            lowMask[(size_t) i] = !high[(size_t) i];
+            highMask[(size_t) i] = high[(size_t) i];
+        }
+        anyHigh = false;
+        highDynamics = false;
+        for (int i = 0; i < maxBands; ++i)
+        {
+            anyHigh = anyHigh || (high[(size_t) i] && isActive(p[i]));
+            highDynamics = highDynamics || (high[(size_t) i] && usesDynamics(p[i]));
+        }
+        lowCore.setParams(lowBands.data(), gainQ, dyn);
+        core.setParams(highBands.data(), gainQ, dyn);
+    }
+
+    void snapToTargets()
+    {
+        lowCore.snapToTargets();
+        core.snapToTargets();
+    }
+
+    void setTelemetry(DynamicsTelemetry* t)
+    {
+        core.dynamics.telemetry = t;
+        lowCore.dynamics.telemetry = t;
     }
 
     int latency() const
@@ -205,16 +270,20 @@ public:
             core.process(L, R, inL, inR, scL, scR, n);
             return;
         }
+        // Primero las bandas graves, a la frecuencia del proyecto.
+        lowCore.process(L, R, inL, inR, scL, scR, n);
         const int nu = n * factor;
         const bool stereo = R != nullptr;
 
-        // Señal y copia de la entrada (para la dinámica), las dos subidas igual.
+        // Señal y copia de la entrada (esta última solo si alguna banda aguda tiene dinámica).
         up(0, L, bufL.data(), midL.data(), n, stageA, stageB);
-        up(0, inL, inUpL.data(), inMidL.data(), n, inA, inB);
+        if (highDynamics)
+            up(0, inL, inUpL.data(), inMidL.data(), n, inA, inB);
         if (stereo)
         {
             up(1, R, bufR.data(), midR.data(), n, stageA, stageB);
-            up(1, inR, inUpR.data(), inMidR.data(), n, inA, inB);
+            if (highDynamics)
+                up(1, inR, inUpR.data(), inMidR.data(), n, inA, inB);
         }
 
         // El sidechain solo alimenta detectores de nivel: alcanza con repetir muestras.
@@ -233,16 +302,23 @@ public:
             }
         }
 
-        core.process(bufL.data(), stereo ? bufR.data() : nullptr, inUpL.data(), stereo ? inUpR.data() : nullptr, sl, sr, nu);
+        // Sin bandas agudas (ni alguna apagándose) no hace falta pasar por el motor sobremuestreado;
+        // la subida y bajada igual se hacen, para que la latencia no cambie.
+        if (anyHigh || core.isBusy())
+            core.process(bufL.data(), stereo ? bufR.data() : nullptr, inUpL.data(), stereo ? inUpR.data() : nullptr, sl, sr, nu);
 
         down(0, bufL.data(), midL.data(), L, n);
         if (stereo)
             down(1, bufR.data(), midR.data(), R, n);
     }
 
-    IirCore core;
+    IirCore core;      // bandas agudas, sobremuestreado
+    IirCore lowCore;   // bandas graves, a la frecuencia del proyecto
 
 private:
+    std::array<bool, maxBands> high {}, lowMask {}, highMask {};
+    bool anyHigh = true, highDynamics = true;
+    std::array<BandParams, maxBands> lowBands {}, highBands {};
     void up(int ch, const double* in, double* out, double* mid, int n, HalfbandStage* a, HalfbandStage* b)
     {
         if (factor == 2)
