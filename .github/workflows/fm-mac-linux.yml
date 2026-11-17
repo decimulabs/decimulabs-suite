@@ -1,0 +1,56 @@
+# Arma DecimuLabs FM para Mac y Linux en las máquinas de GitHub (Windows se arma en la compu del estudio).
+# Los archivos quedan en la pestaña Actions de cada corrida, como "artifacts" para descargar.
+name: DecimuLabs FM (Mac y Linux)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "plugins/decimul-fm/**"
+      - "shared/**"
+      - ".github/workflows/fm-mac-linux.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x64
+          - os: macos-14
+            name: mac-universal
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libjack-jackd2-dev libcurl4-openssl-dev \
+            libfreetype6-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev \
+            libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev ninja-build
+
+      - name: Configurar
+        working-directory: plugins/decimul-fm
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then EXTRA='-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13'; else EXTRA='-G Ninja'; fi
+          cmake -B build -DCMAKE_BUILD_TYPE=Release $EXTRA
+
+      - name: Compilar
+        working-directory: plugins/decimul-fm
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Empaquetar
+        working-directory: plugins/decimul-fm/build/DecimulFM_artefacts/Release
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp -R "VST3/DecimuLabs FM.vst3" "$GITHUB_WORKSPACE/out/"
+          if [ "$RUNNER_OS" = "macOS" ]; then cp -R "Standalone/DecimuLabs FM.app" "$GITHUB_WORKSPACE/out/"; else cp "Standalone/DecimuLabs FM" "$GITHUB_WORKSPACE/out/"; fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DecimuLabs-FM-${{ matrix.name }}
+          path: out
