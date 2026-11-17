@@ -54,3 +54,16 @@ jobs:
         with:
           name: DecimuLabs-FM-${{ matrix.name }}
           path: out
+
+  netbook:
+    # El programa de consola para las netbooks con antiX (mismo motor, ALSA, sin JUCE)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - working-directory: plugins/decimul-fm/netbook
+        run: gcc -O2 -Wall -Wextra -o sintefm sintefm.c ym2612.c -lasound -lm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DecimuLabs-FM-netbook-codigo
+          path: plugins/decimul-fm/netbook
